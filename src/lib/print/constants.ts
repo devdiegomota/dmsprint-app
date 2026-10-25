@@ -43,8 +43,8 @@ export const PRODUCTS: Record<ProductId, ProductSpec> = {
   "cartao-visita": {
     id: "cartao-visita",
     name: "Cartão de Visita",
-    widthMm: 90,
-    heightMm: 54,
+    widthMm: 95,
+    heightMm: 56,
     unitsPerSheet: 10,
     cols: 2,
     rows: 5,

@@ -134,7 +134,7 @@ export function ExportPanel({
               <li className="flex gap-2">
                 <Printer className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
                 {spec.gapMode === "glued"
-                  ? "Corte na guilhotina: separe tiras de 2 cartões (corte no meio do bloco) e depois corte cada tira a cada 54 mm."
+                  ? `Corte na guilhotina: separe tiras de 2 cartões (corte no meio do bloco) e depois corte cada tira a cada ${fmtMm(spec.heightMm)} mm.`
                   : "Corte seguindo a borda branca ao redor de cada panfleto (guia de ≈3 mm a partir da borda da folha)."}
               </li>
               <li className="flex gap-2">
