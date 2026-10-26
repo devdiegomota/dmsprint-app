@@ -28,6 +28,7 @@ import {
 import {
   renderImposedSheet,
   computeLayout,
+  DEFAULT_BOTTOM_GUARD_MM,
   type ImpositionLayout,
 } from "@/lib/print/imposition";
 
@@ -84,6 +85,9 @@ export default function Home() {
   const [sheetCanvas, setSheetCanvas] = useState<HTMLCanvasElement | null>(null);
   /** Modo de enquadramento (cover/contain/stretch) — reamostra a partir do fonte. */
   const [fitMode, setFitMode] = useState<FitMode>("cover");
+  /** Guarda de base (mm) para a margem não imprimível da impressora — propriedade da
+   *  impressora, NÃO é resetada junto com a arte. */
+  const [bottomGuardMm, setBottomGuardMm] = useState(DEFAULT_BOTTOM_GUARD_MM);
 
   const enhanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Canvas decodificado no tamanho natural — mantido para re-enquadrar sem re-decodificar. */
@@ -173,17 +177,17 @@ export default function Home() {
     };
   }, [preparedCanvas, analysis, settings]);
 
-  // ---- Etapa 2 → 3: monta a folha imposta sempre que a arte tratada muda ----
+  // ---- Etapa 2 → 3: monta a folha imposta sempre que a arte tratada ou a guarda muda ----
   useEffect(() => {
     if (!enhancedCanvas || !spec) return;
-    const { canvas } = renderImposedSheet(enhancedCanvas, spec);
+    const { canvas } = renderImposedSheet(enhancedCanvas, spec, { bottomGuardMm });
     setSheetCanvas(canvas);
     setMaxReached((m) => Math.max(m, 4));
-  }, [enhancedCanvas, spec]);
+  }, [enhancedCanvas, spec, bottomGuardMm]);
 
   const layout: ImpositionLayout | null = useMemo(
-    () => (spec ? computeLayout(spec) : null),
-    [spec],
+    () => (spec ? computeLayout(spec, { bottomGuardMm }) : null),
+    [spec, bottomGuardMm],
   );
 
   const goTo = useCallback((s: number) => {
@@ -254,7 +258,13 @@ export default function Home() {
           )}
 
           {step === 4 && spec && (
-            <ExportPanel spec={spec} sheetCanvas={sheetCanvas} units={spec.unitsPerSheet} />
+            <ExportPanel
+              spec={spec}
+              sheetCanvas={sheetCanvas}
+              units={spec.unitsPerSheet}
+              bottomGuardMm={bottomGuardMm}
+              onBottomGuardChange={setBottomGuardMm}
+            />
           )}
         </section>
 

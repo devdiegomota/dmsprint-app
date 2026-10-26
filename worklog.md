@@ -100,3 +100,19 @@ Work Log:
 
 Stage Summary:
 - Em vez de 3,4 mm (que daria só +0,1 mm), o layout agora concentra a folga vertical na base: 2,0 mm de branco absorvem a mordida da impressora mesmo em borderless, rodapé dos panfletos de baixo protegido; tolerância de corte vertical caiu de 3,5 para ~3,0 mm por peça (ainda ±3 mm para a lâmina). Knob ajustável: PRINTER_BOTTOM_GUARD_PX.
+
+---
+Task ID: 7
+Agent: main (Z.ai)
+Task: Usuário testou a guarda de 2,0 mm e ainda perdeu ~1 mm de arte na base ("mordeu só um pouquinho"); pediu continuar no caminho do ajuste. Tornar a compensação definitiva (ajustável na UI) em vez de iterative hardcode.
+
+Work Log:
+- Diagnóstico: com guarda de 2,0 mm a arte ainda foi mordida ~1 mm → zona não imprimível real da impressora do usuário na base ≈ 3 mm. Novo round de hardcode ia exigir outro ciclo de teste; cada impressora tem uma margem diferente — a solução certa é EXPOVER o ajuste.
+- imposition.ts: duasCutRows agora é ADAPTATIVA (prioridades: 1. guarda escolhida, clampada à folga; 2. topo mínimo de 0,5 mm — mmToPx(0.5)=6 px; 3. resto vira folga de corte, máx. 3,5 mm/peça igual ao eixo X). Removidas CUT_CLEARANCE_Y_PX e PRINTER_BOTTOM_GUARD_PX; novas exportações DEFAULT_BOTTOM_GUARD_MM = 3 e MAX_BOTTOM_GUARD_MM = 5 (limite do slider). Nova interface ImpositionOptions { bottomGuardMm?: number }; computeLayout/renderImposedSheet/describeLayout recebem options. Cabeçalho do arquivo reescrito.
+- page.tsx: estado bottomGuardMm (default 3) — persiste entre resets de arte (é propriedade da impressora); renderImposedSheet e computeLayout recebem { bottomGuardMm } (deps do efeito/memo atualizadas); ExportPanel recebe valor + setter.
+- export-panel.tsx: props bottomGuardMm/onBottomGuardChange; computeLayout com a opção; NOVO bloco "Ajuste para a sua impressora" (só two-cut): slider 0–5 mm passo 0,25 com valor exibido ("3,00 mm de branco na base") e explicação (subir em passos de 0,5 mm se a arte ainda for mordida; topo mantém ≥0,5 mm; linhas de corte acompanham sozinhas); aviso borderless reescrito (base tem de 1 a 3 mm não imprimíveis, varia por modelo). constants.ts: spacingNote genérico (reserva ajustável).
+- Distribuição resultante com default 3,0 mm (px @300 DPI): topo 7 (0,6 mm) · folga de corte Y 2×32 (2,7 mm/peça) · base 35 (3,0 mm). Eixo X inalterado (1,5/3,5/1,5). Corte horizontal fica a 147,3 mm do topo.
+- E2E agent-browser: fluxo completo panfleto; slider testado via teclado (3,00→3,75→3,00), rótulo e checklist reagem em tempo real (com 3,75: corte a 146,9 mm, folga vert. 2,4 mm/peça); PDF re-exportado e validado (1 página — contagem "2" do verify_pdf.py é artefato do regex que casa /Pages também; A4 exato, 300,0 DPI, DCTDecode, 490 KB); console sem erros; lint limpo. Screenshots scripts/shot-13-guard-default.png, shot-14-guard-slider-375.png, shot-15-guard-final.png.
+
+Stage Summary:
+- Fim do ciclo teste-e-erro: o usuário agora ajusta a reserva da base (0–5 mm) na própria tela de exportação, com feedback instantâneo nas instruções de corte; default 3,0 mm já cobre a mordida de ~3 mm medida na impressora dele. Qualquer impressora futura é caso de slider, não de código.

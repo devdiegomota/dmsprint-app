@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { A4, fmtMm, pxToMm, type ProductSpec } from "@/lib/print/constants";
-import { computeLayout } from "@/lib/print/imposition";
+import { computeLayout, MAX_BOTTOM_GUARD_MM } from "@/lib/print/imposition";
 import { fmtBytes, exportSheetPdf, type PdfImageFormat } from "@/lib/print/pdf";
 import { useToast } from "@/hooks/use-toast";
 
@@ -17,10 +17,15 @@ export function ExportPanel({
   spec,
   sheetCanvas,
   units,
+  bottomGuardMm,
+  onBottomGuardChange,
 }: {
   spec: ProductSpec;
   sheetCanvas: HTMLCanvasElement | null;
   units: number;
+  /** Guarda de base atual (mm) — controlada no page.tsx, compartilhada com o preview. */
+  bottomGuardMm: number;
+  onBottomGuardChange: (mm: number) => void;
 }) {
   const { toast } = useToast();
   const [format, setFormat] = useState<PdfImageFormat>("jpeg");
@@ -30,7 +35,7 @@ export function ExportPanel({
   const [done, setDone] = useState<string | null>(null);
 
   // Linhas de corte e folgas derivadas do layout (fonte única da matemática).
-  const twoCut = spec.gapMode === "two-cut" ? computeLayout(spec) : null;
+  const twoCut = spec.gapMode === "two-cut" ? computeLayout(spec, { bottomGuardMm }) : null;
   const cutXMm = twoCut ? pxToMm((twoCut.colX[0] + twoCut.cellWidthPx + twoCut.colX[1]) / 2) : 0;
   const cutYMm = twoCut ? pxToMm((twoCut.rowY[0] + twoCut.cellHeightPx + twoCut.rowY[1]) / 2) : 0;
   const cutWhiteLatMm = twoCut ? pxToMm(twoCut.gapXPx / 2) : 0;
@@ -140,8 +145,10 @@ export function ExportPanel({
                   <Printer className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
                   <span>
                     Impressora doméstica: ative <strong className="text-foreground">&quot;Sem margens&quot;</strong> (borda a
-                    borda) — e mesmo assim a base da folha costuma ter ~2 mm não imprimíveis. O layout já reserva branco
-                    extra na base para proteger o rodapé dos panfletos de baixo; mantenha a escala em 100%.
+                    borda) — e mesmo assim a base da folha costuma ter de 1 a 3 mm não imprimíveis (varia por modelo). O
+                    layout já reserva branco extra na base para proteger o rodapé dos panfletos de baixo; se ainda
+                    morder a arte, aumente o <strong className="text-foreground">ajuste para a sua impressora</strong> no
+                    bloco abaixo e gere o PDF novamente.
                   </span>
                 </li>
               )}
@@ -162,6 +169,36 @@ export function ExportPanel({
                 Cada folha contém <strong className="text-foreground">{units} unidades</strong> da arte (frente única).
               </li>
             </ul>
+
+            {spec.gapMode === "two-cut" && (
+              <div className="mt-4 rounded-lg border bg-muted/40 p-4">
+                <div className="flex items-baseline justify-between gap-2">
+                  <Label htmlFor="bottom-guard" className="text-sm font-semibold">
+                    Ajuste para a sua impressora
+                  </Label>
+                  <span className="font-mono text-sm text-foreground">
+                    {bottomGuardMm.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} mm de
+                    branco na base
+                  </span>
+                </div>
+                <Slider
+                  id="bottom-guard"
+                  aria-label="Branco extra na base da folha para compensar a margem não imprimível da impressora"
+                  value={[bottomGuardMm]}
+                  min={0}
+                  max={MAX_BOTTOM_GUARD_MM}
+                  step={0.25}
+                  onValueChange={([v]) => onBottomGuardChange(v)}
+                  className="mt-3"
+                />
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  Cada impressora tem uma zona não imprimível diferente na base. Se, mesmo com &quot;Sem margens&quot; e
+                  escala 100%, a arte ainda for mordida embaixo, suba este valor em passos de 0,5 mm e gere o PDF de
+                  novo — o conteúdo sobe na folha e o branco da base engorda (o topo mantém no mínimo 0,5 mm). As duas
+                  linhas de corte da guilhotina acompanham o ajuste automaticamente.
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 

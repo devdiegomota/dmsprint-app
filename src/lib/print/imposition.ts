@@ -4,13 +4,14 @@
  *  - Cartão de Visita: grade 2 × 5 = 10 unidades COLADAS (gap 0), bloco centralizado
  *    — ideal para corte em guilhotina (corta-se a pilha em tiras e depois em peças).
  *  - Panfleto: grade 2 × 2 = 4 unidades com layout EXATO PARA 2 CORTES de guilhotina:
- *    1 corte vertical (a 105 mm da lateral) e 1 horizontal (a ≈148 mm do topo), ambos no
- *    MEIO da faixa branca central. Cada peça fica com ≈3,5 mm (lat.) × ≈3,0 mm (vert.)
- *    de borda branca até a linha de corte. Observação: 3,5 mm em TODOS os lados de todas
- *    as peças exigiria 214 × 302 mm — não cabe no A4. A distribuição prioriza (a) a
- *    folga da linha de corte e (b) a BASE da folha, que recebe 2,0 mm de branco extra:
- *    é ali que a margem não imprimível das impressoras morde mesmo no modo "sem margens"
- *    (medido em impressora real: ~2 mm na base, ≈0 no topo/laterais).
+ *    1 corte vertical (a 105 mm da lateral) e 1 horizontal (no meio da faixa branca
+ *    central). Observação: 3,5 mm em TODOS os lados de todas as peças exigiria
+ *    214 × 302 mm — não cabe no A4. A folga vertical (9 mm) é distribuída por
+ *    prioridade: (1) GUARDA DE BASE ajustável (padrão 3,0 mm — medido em impressora
+ *    real: a zona não imprimível na base chega a ~3 mm mesmo no modo "sem margens"),
+ *    (2) seguro mínimo de 0,5 mm no topo, (3) o resto vai para a folga da linha de
+ *    corte (até 3,5 mm por peça). A guarda é ajustável na UI porque cada impressora
+ *    tem uma margem não imprimível diferente na base.
  *
  * Todas as posições são inteiras (px) para evitar interpolação sub-pixel e manter
  * os vincos/cortes pixel-perfect na impressão.
@@ -72,17 +73,17 @@ export function computedGapPx(pagePx: number, cellPx: number, n: number): number
 export const CUT_CLEARANCE_PX = mmToPx(3.5); // 41 px ≈ 3,5 mm
 
 /**
- * Folga de corte no eixo Y: levemente menor que a lateral para financiar a guarda de
- * base (abaixo) — ainda dá ±3 mm de tolerância à lâmina na guilhotina.
+ * Guarda de base (modo 2 cortes): branco extra na BASE da folha para absorver a margem
+ * não imprimível da impressora — maior ali mesmo no modo "sem margens". Testes em
+ * impressora real (Epson/HP domésticas) mostraram de ~1 a ~3 mm de perda na base; o
+ * padrão de 3,0 mm cobre o pior caso medido e é ajustável na UI (ver ExportPanel),
+ * pois o valor exato varia por modelo.
  */
-export const CUT_CLEARANCE_Y_PX = mmToPx(3); // 35 px ≈ 3,0 mm
-
-/**
- * Branco extra na BASE da folha (modo 2 cortes): a margem não imprimível das impressoras
- * é maior na base — mesmo no modo "sem margens" sobram ~2 mm não imprimíveis ali. Este
- * branco absorve essa "mordida" e protege o rodapé dos panfletos da fileira inferior.
- */
-export const PRINTER_BOTTOM_GUARD_PX = mmToPx(2); // 24 px ≈ 2,0 mm
+export const DEFAULT_BOTTOM_GUARD_MM = 3;
+/** Limite do slider na UI — acima disso a folga de corte vertical ficaria < 2 mm. */
+export const MAX_BOTTOM_GUARD_MM = 5;
+/** Seguro mínimo no topo (a margem não imprimível do topo é ~0 em borderless). */
+const MIN_TOP_MARGIN_PX = mmToPx(0.5); // 6 px
 
 /**
  * Posições para o modo "2 cortes": a lâmina passa no centro exato do eixo e cada
@@ -94,18 +95,31 @@ function twoCutPositions(pagePx: number, cellPx: number, clearancePx: number): n
 }
 
 /**
- * Linhas do modo "2 cortes" com guarda de base: o topo mantém folga normal e a base
- * recebe `bottomGuardPx` de branco extra (a faixa de corte deixa de estar exatamente
- * centrada na folha — por isso a instrução de corte usa o MEIO DA FAIXA, não o centro
- * da folha). Sem folga suficiente, cai para a distribuição simétrica.
+ * Linhas do modo "2 cortes" com guarda de base ADAPTATIVA. Folga vertical total do A4
+ * (slack) = topo + 2 × folga de corte + guarda de base. Prioridades:
+ *  1. guarda de base = valor escolhido pelo usuário (clampado à folga existente);
+ *  2. seguro mínimo de 0,5 mm no topo (nunca zero — a arte não pode encostar na borda);
+ *  3. o restante vira folga de corte (máx. 3,5 mm por peça, igual ao eixo X).
+ * A faixa de corte deixa de estar centrada na folha — por isso a instrução de corte
+ * usa o MEIO DA FAIXA branca, não o centro da folha.
  */
-function twoCutRows(pagePx: number, cellPx: number, clearancePx: number, bottomGuardPx: number): number[] {
-  const top = pagePx - (2 * cellPx + 2 * clearancePx + bottomGuardPx);
-  if (top < 0) return twoCutPositions(pagePx, cellPx, clearancePx);
-  return [top, top + cellPx + 2 * clearancePx];
+function twoCutRows(pagePx: number, cellPx: number, guardPx: number): number[] {
+  const slack = pagePx - 2 * cellPx;
+  const guard = Math.min(Math.max(0, Math.round(guardPx)), slack);
+  const remaining = slack - guard; // topo + 2 × folga de corte
+  const topMin = Math.min(MIN_TOP_MARGIN_PX, Math.floor(remaining / 3));
+  const clearance = Math.min(CUT_CLEARANCE_PX, Math.floor((remaining - topMin) / 2));
+  const top = remaining - 2 * clearance;
+  return [top, top + cellPx + 2 * clearance];
 }
 
-export function computeLayout(spec: ProductSpec): ImpositionLayout {
+/** Opções de imposição ajustáveis na UI. */
+export interface ImpositionOptions {
+  /** Branco extra na base da folha, em mm (padrão: {@link DEFAULT_BOTTOM_GUARD_MM}). */
+  bottomGuardMm?: number;
+}
+
+export function computeLayout(spec: ProductSpec, options: ImpositionOptions = {}): ImpositionLayout {
   const cellWidthPx = Math.round((spec.widthMm / 25.4) * 300);
   const cellHeightPx = Math.round((spec.heightMm / 25.4) * 300);
 
@@ -117,7 +131,8 @@ export function computeLayout(spec: ProductSpec): ImpositionLayout {
     rowY = computePositions(A4.heightPx, cellHeightPx, spec.rows, 0);
   } else if (spec.gapMode === "two-cut") {
     colX = twoCutPositions(A4.widthPx, cellWidthPx, CUT_CLEARANCE_PX);
-    rowY = twoCutRows(A4.heightPx, cellHeightPx, CUT_CLEARANCE_Y_PX, PRINTER_BOTTOM_GUARD_PX);
+    const guardPx = mmToPx(options.bottomGuardMm ?? DEFAULT_BOTTOM_GUARD_MM);
+    rowY = twoCutRows(A4.heightPx, cellHeightPx, guardPx);
   } else {
     colX = computePositions(A4.widthPx, cellWidthPx, spec.cols, computedGapPx(A4.widthPx, cellWidthPx, spec.cols));
     rowY = computePositions(A4.heightPx, cellHeightPx, spec.rows, computedGapPx(A4.heightPx, cellHeightPx, spec.rows));
@@ -150,8 +165,9 @@ export function computeLayout(spec: ProductSpec): ImpositionLayout {
 export function renderImposedSheet(
   art: HTMLCanvasElement,
   spec: ProductSpec,
+  options: ImpositionOptions = {},
 ): { canvas: HTMLCanvasElement; layout: ImpositionLayout } {
-  const layout = computeLayout(spec);
+  const layout = computeLayout(spec, options);
   const canvas = makeCanvas(layout.pageWidthPx, layout.pageHeightPx);
   const ctx = canvas.getContext("2d")!;
 
@@ -179,8 +195,8 @@ export function renderImposedSheet(
 }
 
 /** Resumo legível (pt-BR) do layout para exibir na UI. */
-export function describeLayout(spec: ProductSpec): string[] {
-  const layout = computeLayout(spec);
+export function describeLayout(spec: ProductSpec, options: ImpositionOptions = {}): string[] {
+  const layout = computeLayout(spec, options);
   const lines: string[] = [];
   lines.push(`${spec.cols} colunas × ${spec.rows} linhas = ${layout.unitCount} unidades por folha`);
   if (spec.gapMode === "glued") {
