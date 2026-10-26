@@ -71,3 +71,16 @@ Work Log:
 
 Stage Summary:
 - Panfleto agora sai pronto para o fluxo de 2 cortes na guilhotina com 3,5 mm de borda por peça na linha de corte. Cartão (colado 2×5) inalterado.
+
+---
+Task ID: 5
+Agent: main (Z.ai)
+Task: Explicar por que a impressão caseira corta o rodapé da arte (observação do usuário sobre 214×302 mm) e avisar isso na UI.
+
+Work Log:
+- Diagnóstico confirmado com os números: quem apara o rodapé não é o app/guilhotina — é a margem não imprimível da impressora. PDF íntegro (arte completa 1:1 no arquivo). Layout antigo (auto-border) tinha ~3,0–3,4 mm de branco externo: absorvia margens laterais/superiores (3–5 mm) mas a base da impressora tem margem maior (5 mm+) e invadia a arte. Layout novo (two-cut): folga vertical total de 9 mm → 7 mm vão para a faixa central do corte (3,5+3,5 mm), sobrando só 1,0 mm externo topo/base (e 1,5 mm lateral) — sem "sem margens" na impressora, as bordas externas da arte podem ser aparadas.
+- export-panel.tsx: novo item condicional (gapMode === "two-cut") no checklist: ativar "Sem margens" (borda a borda); sem ela a margem não imprimível (maior na base) apara as bordas externas — rodapé dos panfletos de baixo é o mais afetado; cortes centrais seguros com 3,5 mm garantidos.
+- E2E agent-browser: fluxo completo panfleto (upload test-flyer.png → análise → folha → exportação); novo aviso visível no checklist; PDF exportado e validado (210,00×297,00 mm, 2480×3508 px = 300,0 DPI, DCTDecode, 496 KB); console sem erros. Lint limpo. Screenshot scripts/shot-12-printer-tip.png.
+
+Stage Summary:
+- Observação do usuário explicada e materializada na UI: o app não corta a arte; a margem não imprimível da impressora apara as bordas externas (base pior), e o checklist agora orienta ativar "Sem margens" + manter escala 100%.

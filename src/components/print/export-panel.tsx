@@ -127,6 +127,17 @@ export function ExportPanel({
                 Imprimir em <strong className="text-foreground">escala 100%</strong> (tamanho real), desativando
                 &quot;ajustar à área imprimível&quot;.
               </li>
+              {spec.gapMode === "two-cut" && (
+                <li className="flex gap-2">
+                  <Printer className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+                  <span>
+                    Impressora doméstica: se houver a opção <strong className="text-foreground">&quot;Sem margens&quot;</strong>{" "}
+                    (borda a borda), ative-a — sem ela, a margem não imprimível da impressora (maior na base) apara as
+                    bordas externas da arte, e o rodapé dos panfletos de baixo é o mais afetado. Os 2 cortes centrais
+                    não são afetados: <strong className="text-foreground">3,5 mm de branco garantidos</strong> por panfleto.
+                  </span>
+                </li>
+              )}
               <li className="flex gap-2">
                 <Printer className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
                 Papel A4 (210 × 297 mm), melhor qualidade de impressora, sem escalonamento do driver.
