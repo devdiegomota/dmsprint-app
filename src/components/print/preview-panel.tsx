@@ -19,6 +19,9 @@ export function PreviewPanel({
   sheetCanvas: HTMLCanvasElement | null;
   onContinue: () => void;
 }) {
+  // Linhas de corte = meio da faixa branca central de cada eixo (fonte única: layout).
+  const cutXMm = pxToMm((layout.colX[0] + layout.cellWidthPx + layout.colX[1]) / 2);
+  const cutYMm = pxToMm((layout.rowY[0] + layout.cellHeightPx + layout.rowY[1]) / 2);
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,4fr)]">
       {/* Pré-visualização da folha */}
@@ -82,8 +85,9 @@ export function PreviewPanel({
                   </p>
                 ) : spec.gapMode === "two-cut" ? (
                   <p className="text-sm text-muted-foreground">
-                    Layout de <strong>2 cortes</strong>: 1 vertical + 1 horizontal no centro exato da folha (
-                    {fmtMm(A4.widthMm / 2)} × {fmtMm(A4.heightMm / 2)} mm). Cada panfleto fica com{" "}
+                    Layout de <strong>2 cortes</strong>: 1 vertical a <strong>{fmtMm(cutXMm)} mm</strong> da lateral e 1
+                    horizontal a <strong>{fmtMm(cutYMm)} mm</strong> do topo — passe a lâmina no meio da faixa branca
+                    central. Cada panfleto fica com{" "}
                     <strong>≈{fmtMm(pxToMm(layout.gapXPx / 2))} mm</strong> (lat.) ×{" "}
                     <strong>≈{fmtMm(pxToMm(layout.gapYPx / 2))} mm</strong> (vert.) de borda branca na linha de corte.
                   </p>
@@ -95,8 +99,9 @@ export function PreviewPanel({
                   </p>
                 )}
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Margem externa do bloco: {fmtMm(pxToMm(layout.outerLeftPx))} mm (lat.) ×{" "}
-                  {fmtMm(pxToMm(layout.outerTopPx))} mm (vert.)
+                  Margem externa: {fmtMm(pxToMm(layout.outerLeftPx))} mm (lat.) × {fmtMm(pxToMm(layout.outerTopPx))} mm
+                  (topo) / {fmtMm(pxToMm(layout.outerBottomPx))} mm (base) — a base leva branco extra porque é ali que a
+                  margem não imprimível da impressora morde, mesmo no modo &quot;sem margens&quot;.
                 </p>
               </div>
             </div>

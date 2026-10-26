@@ -84,3 +84,19 @@ Work Log:
 
 Stage Summary:
 - Observação do usuário explicada e materializada na UI: o app não corta a arte; a margem não imprimível da impressora apara as bordas externas (base pior), e o checklist agora orienta ativar "Sem margens" + manter escala 100%.
+
+---
+Task ID: 6
+Agent: main (Z.ai)
+Task: Usuário imprimiu com escala 100% + borderless e ainda perdeu ~2 mm na base da folha; sugeriu reduzir a borda de corte de 3,5 para 3,4 mm. Responder com a matemática e corrigir de verdade.
+
+Work Log:
+- Matemática da proposta do usuário: reduzir a folga de corte de 3,5 para 3,4 mm libera só (9−6,8)/2 = 1,1 mm externo vertical (+0,1 mm) — não cobre a mordida de ~2 mm. A alavanca real é a DISTRIBUIÇÃO: a mordida é só na base, então a folga vertical deve se concentrar lá.
+- imposition.ts: CUT_CLEARANCE_Y_PX = mmToPx(3) (35 px ≈ 3,0 mm, eixo Y) e PRINTER_BOTTOM_GUARD_PX = mmToPx(2) (24 px ≈ 2,0 mm de branco extra na base); nova twoCutRows() posiciona topo com folga normal e base com a guarda (fallback simétrico se não couber); CUT_CLEARANCE_PX (3,5 mm) mantido no eixo X; ImpositionLayout ganhou outerBottomPx; describeLayout atualizado (linhas de corte = meio da faixa branca).
+- Layout resultante (px @300 DPI): x1=18, faixa X=82, x2=1281 | y1=12, faixa Y=70, y2=1783, base=24. Corte vertical a ~105 mm da lateral; horizontal a ~148 mm do topo (0,5 mm acima do centro; cortando no 148,5 ainda sobram 2,5 mm de branco). Eixo X inalterado (3,5 mm/peça) pois laterais comprovadamente ok.
+- preview-panel.tsx: cortes exibidos a partir do layout (105 mm / 148 mm, meio da faixa); margem externa agora mostra topo E base com explicação da guarda. export-panel.tsx: instrução de 2 cortes derivada de computeLayout (fonte única) e aviso de impressora atualizado ("mesmo com Sem margens, a base tem ~2 mm não imprimíveis — o layout já reserva esse branco"). constants.ts: spacingNote atualizado.
+- Novo script scripts/measure_two_cut.py: extrai as 4 artes do PDF renderizado a 300 DPI (cabeçalho laranja + faixa escura) e imprime todas as margens em mm.
+- E2E agent-browser: fluxo completo panfleto; medição pixel-exata no canvas 2480×3508: esq/dir 1,52 · topo 1,02 · base 2,03 · faixaX 6,94 (3,47/peça) · faixaY 5,93 (2,96/peça) · peça 99,99×144,02 · cortes em 104,94/147,95 mm. PDF validado (A4 exato, 300,0 DPI, DCTDecode, 490 KB) e remedido do PDF renderizado: mesmos valores (±0,1 mm de arredondamento do rasterizador). Lint limpo, console sem erros. Screenshot scripts/shot-13-bottom-guard.png.
+
+Stage Summary:
+- Em vez de 3,4 mm (que daria só +0,1 mm), o layout agora concentra a folga vertical na base: 2,0 mm de branco absorvem a mordida da impressora mesmo em borderless, rodapé dos panfletos de baixo protegido; tolerância de corte vertical caiu de 3,5 para ~3,0 mm por peça (ainda ±3 mm para a lâmina). Knob ajustável: PRINTER_BOTTOM_GUARD_PX.

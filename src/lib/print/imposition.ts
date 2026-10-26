@@ -4,12 +4,13 @@
  *  - Cartão de Visita: grade 2 × 5 = 10 unidades COLADAS (gap 0), bloco centralizado
  *    — ideal para corte em guilhotina (corta-se a pilha em tiras e depois em peças).
  *  - Panfleto: grade 2 × 2 = 4 unidades com layout EXATO PARA 2 CORTES de guilhotina:
- *    1 corte vertical e 1 horizontal passando no CENTRO exato da folha (105 × 148,5 mm).
- *    Cada peça fica com 3,5 mm de borda branca até a linha de corte (folga segura para a
- *    lâmina); a folga restante vai para as bordas externas da folha (1,5 mm lat. /
- *    1,0 mm vert.), onde a lâmina não passa. Observação: 3,5 mm em TODOS os lados de
- *    todas as peças exigiria 214 × 302 mm — não cabe no A4; no fluxo de 2 cortes, a
- *    folga crítica é a da linha de corte, e é ela que o layout garante.
+ *    1 corte vertical (a 105 mm da lateral) e 1 horizontal (a ≈148 mm do topo), ambos no
+ *    MEIO da faixa branca central. Cada peça fica com ≈3,5 mm (lat.) × ≈3,0 mm (vert.)
+ *    de borda branca até a linha de corte. Observação: 3,5 mm em TODOS os lados de todas
+ *    as peças exigiria 214 × 302 mm — não cabe no A4. A distribuição prioriza (a) a
+ *    folga da linha de corte e (b) a BASE da folha, que recebe 2,0 mm de branco extra:
+ *    é ali que a margem não imprimível das impressoras morde mesmo no modo "sem margens"
+ *    (medido em impressora real: ~2 mm na base, ≈0 no topo/laterais).
  *
  * Todas as posições são inteiras (px) para evitar interpolação sub-pixel e manter
  * os vincos/cortes pixel-perfect na impressão.
@@ -36,6 +37,8 @@ export interface ImpositionLayout {
   /** Folga externa esquerda/direita e topo/base (px). */
   outerLeftPx: number;
   outerTopPx: number;
+  /** Folga externa na base (px) — no modo 2 cortes inclui a guarda de impressora. */
+  outerBottomPx: number;
 }
 
 /**
@@ -65,16 +68,41 @@ export function computedGapPx(pagePx: number, cellPx: number, n: number): number
   return (pagePx - n * cellPx) / (n + 1);
 }
 
-/** Folga branca de segurança entre a peça e a linha de corte (modo 2 cortes). */
+/** Folga branca de segurança entre a peça e a linha de corte (modo 2 cortes, eixo X). */
 export const CUT_CLEARANCE_PX = mmToPx(3.5); // 41 px ≈ 3,5 mm
 
 /**
+ * Folga de corte no eixo Y: levemente menor que a lateral para financiar a guarda de
+ * base (abaixo) — ainda dá ±3 mm de tolerância à lâmina na guilhotina.
+ */
+export const CUT_CLEARANCE_Y_PX = mmToPx(3); // 35 px ≈ 3,0 mm
+
+/**
+ * Branco extra na BASE da folha (modo 2 cortes): a margem não imprimível das impressoras
+ * é maior na base — mesmo no modo "sem margens" sobram ~2 mm não imprimíveis ali. Este
+ * branco absorve essa "mordida" e protege o rodapé dos panfletos da fileira inferior.
+ */
+export const PRINTER_BOTTOM_GUARD_PX = mmToPx(2); // 24 px ≈ 2,0 mm
+
+/**
  * Posições para o modo "2 cortes": a lâmina passa no centro exato do eixo e cada
- * peça fica a 3,5 mm dela. Retorna [posição da 1ª peça, posição da 2ª peça].
+ * peça fica a `clearancePx` dela. Retorna [posição da 1ª peça, posição da 2ª peça].
  */
 function twoCutPositions(pagePx: number, cellPx: number, clearancePx: number): number[] {
   const cut = pagePx / 2;
   return [Math.round(cut - clearancePx - cellPx), Math.round(cut + clearancePx)];
+}
+
+/**
+ * Linhas do modo "2 cortes" com guarda de base: o topo mantém folga normal e a base
+ * recebe `bottomGuardPx` de branco extra (a faixa de corte deixa de estar exatamente
+ * centrada na folha — por isso a instrução de corte usa o MEIO DA FAIXA, não o centro
+ * da folha). Sem folga suficiente, cai para a distribuição simétrica.
+ */
+function twoCutRows(pagePx: number, cellPx: number, clearancePx: number, bottomGuardPx: number): number[] {
+  const top = pagePx - (2 * cellPx + 2 * clearancePx + bottomGuardPx);
+  if (top < 0) return twoCutPositions(pagePx, cellPx, clearancePx);
+  return [top, top + cellPx + 2 * clearancePx];
 }
 
 export function computeLayout(spec: ProductSpec): ImpositionLayout {
@@ -89,7 +117,7 @@ export function computeLayout(spec: ProductSpec): ImpositionLayout {
     rowY = computePositions(A4.heightPx, cellHeightPx, spec.rows, 0);
   } else if (spec.gapMode === "two-cut") {
     colX = twoCutPositions(A4.widthPx, cellWidthPx, CUT_CLEARANCE_PX);
-    rowY = twoCutPositions(A4.heightPx, cellHeightPx, CUT_CLEARANCE_PX);
+    rowY = twoCutRows(A4.heightPx, cellHeightPx, CUT_CLEARANCE_Y_PX, PRINTER_BOTTOM_GUARD_PX);
   } else {
     colX = computePositions(A4.widthPx, cellWidthPx, spec.cols, computedGapPx(A4.widthPx, cellWidthPx, spec.cols));
     rowY = computePositions(A4.heightPx, cellHeightPx, spec.rows, computedGapPx(A4.heightPx, cellHeightPx, spec.rows));
@@ -114,6 +142,7 @@ export function computeLayout(spec: ProductSpec): ImpositionLayout {
     gapYPx,
     outerLeftPx: colX[0],
     outerTopPx: rowY[0],
+    outerBottomPx: A4.heightPx - (rowY[rowY.length - 1] + cellHeightPx),
   };
 }
 
@@ -159,11 +188,13 @@ export function describeLayout(spec: ProductSpec): string[] {
       `Peças coladas (0 mm) · margem externa: ${pxToMm(layout.outerLeftPx).toFixed(1)} mm (lat.) × ${pxToMm(layout.outerTopPx).toFixed(1)} mm (vert.)`,
     );
   } else if (spec.gapMode === "two-cut") {
+    const cutXMm = pxToMm((layout.colX[0] + layout.cellWidthPx + layout.colX[1]) / 2);
+    const cutYMm = pxToMm((layout.rowY[0] + layout.cellHeightPx + layout.rowY[1]) / 2);
     lines.push(
-      `2 cortes na guilhotina (centro da folha: ${A4.widthMm / 2} × ${A4.heightMm / 2} mm) · branco por peça na linha de corte: ${pxToMm(layout.gapXPx / 2).toFixed(1)} mm (lat.) × ${pxToMm(layout.gapYPx / 2).toFixed(1)} mm (vert.)`,
+      `2 cortes na guilhotina: vertical a ${cutXMm.toFixed(1)} mm da lateral · horizontal a ${cutYMm.toFixed(1)} mm do topo (meio da faixa branca central) · branco por peça na linha de corte: ${pxToMm(layout.gapXPx / 2).toFixed(1)} mm (lat.) × ${pxToMm(layout.gapYPx / 2).toFixed(1)} mm (vert.)`,
     );
     lines.push(
-      `Margem externa (sem corte): ${pxToMm(layout.outerLeftPx).toFixed(1)} mm (lat.) × ${pxToMm(layout.outerTopPx).toFixed(1)} mm (vert.)`,
+      `Margem externa: ${pxToMm(layout.outerLeftPx).toFixed(1)} mm (lat.) × ${pxToMm(layout.outerTopPx).toFixed(1)} mm (topo) / ${pxToMm(layout.outerBottomPx).toFixed(1)} mm (base — reserva para a margem não imprimível da impressora)`,
     );
   } else {
     lines.push(

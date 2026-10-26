@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { A4, fmtMm, type ProductSpec } from "@/lib/print/constants";
+import { A4, fmtMm, pxToMm, type ProductSpec } from "@/lib/print/constants";
+import { computeLayout } from "@/lib/print/imposition";
 import { fmtBytes, exportSheetPdf, type PdfImageFormat } from "@/lib/print/pdf";
 import { useToast } from "@/hooks/use-toast";
 
@@ -27,6 +28,13 @@ export function ExportPanel({
   const [filename, setFilename] = useState(`impressa4-${spec.id}`);
   const [exporting, setExporting] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+
+  // Linhas de corte e folgas derivadas do layout (fonte única da matemática).
+  const twoCut = spec.gapMode === "two-cut" ? computeLayout(spec) : null;
+  const cutXMm = twoCut ? pxToMm((twoCut.colX[0] + twoCut.cellWidthPx + twoCut.colX[1]) / 2) : 0;
+  const cutYMm = twoCut ? pxToMm((twoCut.rowY[0] + twoCut.cellHeightPx + twoCut.rowY[1]) / 2) : 0;
+  const cutWhiteLatMm = twoCut ? pxToMm(twoCut.gapXPx / 2) : 0;
+  const cutWhiteVertMm = twoCut ? pxToMm(twoCut.gapYPx / 2) : 0;
 
   const handleExport = async () => {
     if (!sheetCanvas || exporting) return;
@@ -131,10 +139,9 @@ export function ExportPanel({
                 <li className="flex gap-2">
                   <Printer className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
                   <span>
-                    Impressora doméstica: se houver a opção <strong className="text-foreground">&quot;Sem margens&quot;</strong>{" "}
-                    (borda a borda), ative-a — sem ela, a margem não imprimível da impressora (maior na base) apara as
-                    bordas externas da arte, e o rodapé dos panfletos de baixo é o mais afetado. Os 2 cortes centrais
-                    não são afetados: <strong className="text-foreground">3,5 mm de branco garantidos</strong> por panfleto.
+                    Impressora doméstica: ative <strong className="text-foreground">&quot;Sem margens&quot;</strong> (borda a
+                    borda) — e mesmo assim a base da folha costuma ter ~2 mm não imprimíveis. O layout já reserva branco
+                    extra na base para proteger o rodapé dos panfletos de baixo; mantenha a escala em 100%.
                   </span>
                 </li>
               )}
@@ -147,7 +154,7 @@ export function ExportPanel({
                 {spec.gapMode === "glued"
                   ? `Corte na guilhotina: separe tiras de 2 cartões (corte no meio do bloco) e depois corte cada tira a cada ${fmtMm(spec.heightMm)} mm.`
                   : spec.gapMode === "two-cut"
-                    ? `Apenas 2 cortes na guilhotina: 1 vertical e 1 horizontal no centro exato da folha (${fmtMm(A4.widthMm / 2)} mm e ${fmtMm(A4.heightMm / 2)} mm das bordas) — cada peça sai com 3,5 mm de borda branca na linha de corte.`
+                    ? `Apenas 2 cortes na guilhotina: 1 vertical a ${fmtMm(cutXMm)} mm da lateral e 1 horizontal a ${fmtMm(cutYMm)} mm do topo — passe a lâmina no meio da faixa branca central. Cada peça sai com ≈${fmtMm(cutWhiteLatMm)} mm (lat.) × ≈${fmtMm(cutWhiteVertMm)} mm (vert.) de borda branca na linha de corte.`
                     : "Corte seguindo a borda branca ao redor de cada panfleto (guia de ≈3 mm a partir da borda da folha)."}
               </li>
               <li className="flex gap-2">

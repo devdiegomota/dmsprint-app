@@ -65,7 +65,7 @@ export const PRODUCTS: Record<ProductId, ProductSpec> = {
     rows: 2,
     gapMode: "two-cut",
     spacingNote:
-      "Exato para 2 cortes na guilhotina (1 vertical + 1 horizontal no centro do A4): cada peça fica com 3,5 mm de borda branca na linha de corte.",
+      "Exato para 2 cortes na guilhotina (1 vertical + 1 horizontal): ≈3,5 mm (lat.) × ≈3,0 mm (vert.) de borda branca por peça na linha de corte e 2 mm extras de branco na base da folha para a margem não imprimível da impressora.",
   },
 };
 
