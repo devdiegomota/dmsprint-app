@@ -80,6 +80,13 @@ export function PreviewPanel({
                     Peças <strong>coladas</strong> (0 mm entre si) — corte direto na guilhotina, bloco centralizado na
                     folha.
                   </p>
+                ) : spec.gapMode === "two-cut" ? (
+                  <p className="text-sm text-muted-foreground">
+                    Layout de <strong>2 cortes</strong>: 1 vertical + 1 horizontal no centro exato da folha (
+                    {fmtMm(A4.widthMm / 2)} × {fmtMm(A4.heightMm / 2)} mm). Cada panfleto fica com{" "}
+                    <strong>≈{fmtMm(pxToMm(layout.gapXPx / 2))} mm</strong> (lat.) ×{" "}
+                    <strong>≈{fmtMm(pxToMm(layout.gapYPx / 2))} mm</strong> (vert.) de borda branca na linha de corte.
+                  </p>
                 ) : (
                   <p className="text-sm text-muted-foreground">
                     Borda branca calculada de <strong>≈{fmtMm(pxToMm(layout.gapXPx))} mm</strong> (lateral) ×{" "}

@@ -135,7 +135,9 @@ export function ExportPanel({
                 <Printer className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
                 {spec.gapMode === "glued"
                   ? `Corte na guilhotina: separe tiras de 2 cartões (corte no meio do bloco) e depois corte cada tira a cada ${fmtMm(spec.heightMm)} mm.`
-                  : "Corte seguindo a borda branca ao redor de cada panfleto (guia de ≈3 mm a partir da borda da folha)."}
+                  : spec.gapMode === "two-cut"
+                    ? `Apenas 2 cortes na guilhotina: 1 vertical e 1 horizontal no centro exato da folha (${fmtMm(A4.widthMm / 2)} mm e ${fmtMm(A4.heightMm / 2)} mm das bordas) — cada peça sai com 3,5 mm de borda branca na linha de corte.`
+                    : "Corte seguindo a borda branca ao redor de cada panfleto (guia de ≈3 mm a partir da borda da folha)."}
               </li>
               <li className="flex gap-2">
                 <Printer className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />

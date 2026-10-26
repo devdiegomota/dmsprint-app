@@ -1,7 +1,7 @@
 """Valida o PDF exportado: tamanho da página, imagem embutida e DPI efetivo."""
 import zlib, re, sys
 
-PDF = "/home/z/Downloads/impressa4-cartao-visita.pdf"
+PDF = "/home/z/Downloads/impressa4-panfleto.pdf"
 data = open(PDF, "rb").read()
 
 # MediaBox

@@ -32,9 +32,13 @@ export interface ProductSpec {
   /**
    * Política de espaçamento entre células.
    *  - "glued": colado (0 mm), ideal para corte na guilhotina — cartões.
-   *  - "auto-border": espaçamento calculado para maximizar a borda branca ao redor de cada peça — panfletos.
+   *  - "two-cut": layout exato para 2 cortes (1 vertical + 1 horizontal no centro do A4);
+   *    cada peça recebe 3,5 mm de borda branca na linha de corte, e o restante da folga
+   *    fica nas bordas externas (onde a lâmina não passa) — panfletos.
+   *  - "auto-border": espaçamento calculado para maximizar a borda branca uniforme ao
+   *    redor de cada peça (legado/alternativo).
    */
-  gapMode: "glued" | "auto-border";
+  gapMode: "glued" | "two-cut" | "auto-border";
   /** Descrição da política de espaçamento exibida na UI. */
   spacingNote: string;
 }
@@ -59,9 +63,9 @@ export const PRODUCTS: Record<ProductId, ProductSpec> = {
     unitsPerSheet: 4,
     cols: 2,
     rows: 2,
-    gapMode: "auto-border",
+    gapMode: "two-cut",
     spacingNote:
-      "Borda branca calculada automaticamente ao redor de cada peça (máximo possível em A4, ≈3,5 mm).",
+      "Exato para 2 cortes na guilhotina (1 vertical + 1 horizontal no centro do A4): cada peça fica com 3,5 mm de borda branca na linha de corte.",
   },
 };
 

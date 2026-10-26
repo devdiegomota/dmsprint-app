@@ -56,3 +56,18 @@ Work Log:
 
 Stage Summary:
 - Resposta à dúvida: arte na proporção correta nunca distorceu; proporção diferente distorcia (stretch legado) — agora o padrão é cover (recorte central sem distorção), com contain e stretch opcionais e avisos quantificados na UI.
+
+---
+Task ID: 4
+Agent: main (Z.ai)
+Task: Layout do panfleto exato para 2 cortes de guilhotina (1 vertical + 1 horizontal no centro do A4), mantendo 3,5 mm de borda branca por peça na linha de corte.
+
+Work Log:
+- Geometria: 3,5 mm em TODOS os lados das 4 peças exigiria 214×302 mm (não cabe no A4). Solução: folga crítica garantida nas linhas de corte (centro da folha: 105 × 148,5 mm); folga restante nas bordas externas (sem lâmina): 1,5 mm lat / 1,0 mm vert.
+- constants.ts: gapMode ganhou "two-cut"; panfleto atualizado com spacingNote explicando o fluxo de 2 cortes.
+- imposition.ts: CUT_CLEARANCE_PX = mmToPx(3.5); twoCutPositions() posiciona cada peça a 3,5 mm do centro do eixo; computeLayout com branch two-cut (glued e auto-border mantidos); gapX/gapY agora = vão total entre peças; describeLayout com texto de 2 cortes.
+- preview-panel.tsx: texto de espaçamento do two-cut (corte no centro + branco por peça); export-panel.tsx: instrução de corte "apenas 2 cortes... 105 mm e 148,5 mm das bordas".
+- E2E: panfleto com arte de teste — UI correta; medição pixel-exata via eval no canvas 2480×3508: vão lateral [101.44→108.47 mm] centrado em 104.96 (≈3.5 mm/lado), vão vertical centrado em 148.5 mm exato (3.47 mm/lado), margens externas 1.0–1.6 mm. PDF do panfleto validado (A4 exato, 2480×3508 px, 300.0 DPI, 405 KB). Lint limpo, console sem erros.
+
+Stage Summary:
+- Panfleto agora sai pronto para o fluxo de 2 cortes na guilhotina com 3,5 mm de borda por peça na linha de corte. Cartão (colado 2×5) inalterado.
