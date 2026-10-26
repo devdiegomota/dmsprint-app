@@ -23,6 +23,7 @@ import {
   applyEnhancements,
   recommendSettings,
   type EnhanceSettings,
+  type FitMode,
 } from "@/lib/print/enhance";
 import {
   renderImposedSheet,
@@ -81,8 +82,12 @@ export default function Home() {
   const [enhancedCanvas, setEnhancedCanvas] = useState<HTMLCanvasElement | null>(null);
   const [enhancing, setEnhancing] = useState(false);
   const [sheetCanvas, setSheetCanvas] = useState<HTMLCanvasElement | null>(null);
+  /** Modo de enquadramento (cover/contain/stretch) — reamostra a partir do fonte. */
+  const [fitMode, setFitMode] = useState<FitMode>("cover");
 
   const enhanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Canvas decodificado no tamanho natural — mantido para re-enquadrar sem re-decodificar. */
+  const sourceRef = useRef<HTMLCanvasElement | null>(null);
 
   const spec = product ? PRODUCTS[product] : null;
 
@@ -94,6 +99,7 @@ export default function Home() {
     setSheetCanvas(null);
     setMaxReached(1);
     setStep(1);
+    sourceRef.current = null;
   }, []);
 
   const handleProductChange = useCallback(
@@ -120,7 +126,8 @@ export default function Home() {
       await tick();
       const source = await fileToCanvas(file);
       const result = analyzeArtwork(source, spec);
-      const prepared = preparePrintCanvas(source, spec);
+      const prepared = preparePrintCanvas(source, spec, fitMode);
+      sourceRef.current = source;
       setAnalysis(result);
       setPreparedCanvas(prepared);
       setSettings(recommendSettings(result));
@@ -131,7 +138,19 @@ export default function Home() {
     } finally {
       setAnalyzing(false);
     }
-  }, [file, spec]);
+  }, [file, spec, fitMode]);
+
+  // ---- Troca de enquadramento: re-prepara a geometria (o efeito com debounce re-trata os pixels) ----
+  const handleFitModeChange = useCallback(
+    (fit: FitMode) => {
+      setFitMode(fit);
+      if (settings) setSettings({ ...settings, fitMode: fit });
+      if (sourceRef.current && spec) {
+        setPreparedCanvas(preparePrintCanvas(sourceRef.current, spec, fit));
+      }
+    },
+    [spec, settings],
+  );
 
   // ---- Etapa 2: recalcula tratamento (com debounce para os sliders) ----
   useEffect(() => {
@@ -215,6 +234,8 @@ export default function Home() {
               analysis={analysis}
               settings={settings}
               onSettingsChange={setSettings}
+              fitMode={fitMode}
+              onFitModeChange={handleFitModeChange}
               preparedCanvas={preparedCanvas}
               enhancedCanvas={enhancedCanvas}
               processing={enhancing}

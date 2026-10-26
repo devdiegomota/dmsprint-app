@@ -40,3 +40,19 @@ Work Log:
 
 Stage Summary:
 - Cartão de Visita agora 9,5 × 5,6 cm, 10 por folha A4 (2×5, coladas). Panfleto inalterado (100×144 mm). Nenhuma outra parte do pipeline exigiu ajuste — arquitetura centralizada em constants.ts funcionou como projetado.
+
+---
+Task ID: 3
+Agent: main (Z.ai)
+Task: Responder dúvida do usuário sobre distorção ao dimensionar para cartão/panfleto e corrigir o comportamento.
+
+Work Log:
+- Diagnóstico: preparePrintCanvas usava drawImage(source, 0, 0, w, h) — esticava artes com proporção diferente do produto.
+- enhance.ts: adicionado FitMode (cover/contain/stretch), framingInfo() comparando proporção da arte vs produto, preparePrintCanvas com recorte central (cover) ou margens brancas (contain) — ambos sem distorção; stretch mantido como legado explícito.
+- page.tsx: sourceRef com canvas-fonte, estado fitMode (default cover), handleFitModeChange re-prepara geometria (efeito com debounce re-trata pixels e remonta a folha).
+- enhance-panel.tsx: métrica "Proporção da arte" (1.00:1 vs 1.70:1, nível Crítico/Atenção/OK), RadioGroup de enquadramento com 3 opções e aviso contextual dinâmico (recorte ≈X% da altura/largura; bordas brancas; vermelho + role=alert no stretch).
+- Bug interno corrigido durante E2E: eixos do cover em framingInfo estavam invertidos (arte quadrada no cartão recorta altura, não largura) — validado contra a matemática real do drawImage e contra o preview.
+- E2E com arte quadrada 800×800 (scripts/make_test_square.py): diagnóstico correto, avisos por modo corretos (cover 41% altura, contain barras laterais, stretch ≈70% com alerta vermelho), círculos perfeitamente redondos no preview (prova anti-distorção), PDF exportado e validado (A4 exato, 2480×3508 px, 300.0 DPI). Lint limpo, console sem erros.
+
+Stage Summary:
+- Resposta à dúvida: arte na proporção correta nunca distorceu; proporção diferente distorcia (stretch legado) — agora o padrão é cover (recorte central sem distorção), com contain e stretch opcionais e avisos quantificados na UI.

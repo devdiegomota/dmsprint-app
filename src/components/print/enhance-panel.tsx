@@ -1,18 +1,19 @@
 "use client";
 
-import { Gauge, ScanLine, Type, Contrast, Loader2, RotateCcw, ArrowRight } from "lucide-react";
+import { Gauge, ScanLine, Type, Contrast, Crop, Frame, Scaling, Loader2, RotateCcw, ArrowRight, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CanvasView } from "./canvas-view";
 import { cn } from "@/lib/utils";
 import { fmtMm, type ProductSpec } from "@/lib/print/constants";
 import type { ImageAnalysis } from "@/lib/print/analysis";
-import type { EnhanceSettings } from "@/lib/print/enhance";
+import { framingInfo, type EnhanceSettings, type FitMode } from "@/lib/print/enhance";
 
 function MetricBadge({ level }: { level: "good" | "warn" | "bad" }) {
   return (
@@ -35,15 +36,17 @@ function MetricCard({
   value,
   detail,
   level,
+  className,
 }: {
   icon: React.ReactNode;
   title: string;
   value: string;
   detail: string;
   level: "good" | "warn" | "bad";
+  className?: string;
 }) {
   return (
-    <div className="flex items-start gap-3 rounded-lg border bg-card p-3.5">
+    <div className={cn("flex items-start gap-3 rounded-lg border bg-card p-3.5", className)}>
       <div className="mt-0.5 text-amber-600">{icon}</div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
@@ -57,11 +60,34 @@ function MetricCard({
   );
 }
 
+const FIT_OPTIONS: { value: FitMode; icon: React.ReactNode; label: string; desc: string }[] = [
+  {
+    value: "cover",
+    icon: <Crop className="h-4 w-4" aria-hidden />,
+    label: "Preencher o corte (recorta sobras)",
+    desc: "Escala até cobrir todo o tamanho de corte, centralizada — nunca distorce. Padrão para artes prontas.",
+  },
+  {
+    value: "contain",
+    icon: <Frame className="h-4 w-4" aria-hidden />,
+    label: "Conter (bordas brancas)",
+    desc: "Arte inteira visível, sem distorção; o restante vira margem branca. Ideal para logos e quadros.",
+  },
+  {
+    value: "stretch",
+    icon: <Scaling className="h-4 w-4" aria-hidden />,
+    label: "Esticar para o corte exato",
+    desc: "Preenche esticando — use apenas se a arte já estiver na proporção exata do produto.",
+  },
+];
+
 export function EnhancePanel({
   spec,
   analysis,
   settings,
   onSettingsChange,
+  fitMode,
+  onFitModeChange,
   preparedCanvas,
   enhancedCanvas,
   processing,
@@ -72,6 +98,8 @@ export function EnhancePanel({
   analysis: ImageAnalysis;
   settings: EnhanceSettings;
   onSettingsChange: (s: EnhanceSettings) => void;
+  fitMode: FitMode;
+  onFitModeChange: (f: FitMode) => void;
   preparedCanvas: HTMLCanvasElement;
   enhancedCanvas: HTMLCanvasElement | null;
   processing: boolean;
@@ -83,6 +111,17 @@ export function EnhancePanel({
   const sharpLevel = analysis.sharpnessScore < 45 ? "bad" : analysis.sharpnessScore < 65 ? "warn" : "good";
   const resLevel = analysis.effectiveDpi >= 300 ? "good" : analysis.effectiveDpi >= 200 ? "warn" : "bad";
   const textLevel = analysis.thinTextScore >= 70 ? "bad" : analysis.thinTextScore >= 45 ? "warn" : "good";
+
+  const framing = framingInfo(analysis.naturalWidth, analysis.naturalHeight, spec);
+  const ratioLevel = framing.ratioMatches ? "good" : framing.ratioDiff <= 0.08 ? "warn" : "bad";
+  const axisLabel = (axis: "x" | "y") => (axis === "x" ? "da largura" : "da altura");
+  const framingWarning = framing.ratioMatches
+    ? "Proporção da arte compatível com o produto — os três modos produzem o mesmo resultado."
+    : fitMode === "cover"
+      ? `A arte é proporcionalmente diferente do produto — no modo Preencher, ≈${framing.cropPct.toFixed(0)}% ${axisLabel(framing.cropAxis!)} serão recortados (corte central). Prefira "Conter" para mostrar a arte inteira.`
+      : fitMode === "contain"
+        ? `A arte é proporcionalmente diferente do produto — no modo Conter, surgem bordas brancas de ≈${framing.barPct.toFixed(0)}% ${axisLabel(framing.barAxis!)} em cada lado.`
+        : `A arte será esticada ≈${framing.stretchPct.toFixed(0)}% ${axisLabel(framing.stretchAxis!)} — textos e logotipos podem ficar visivelmente deformados. Prefira "Preencher" ou "Conter".`;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,4fr)]">
@@ -141,6 +180,18 @@ export function EnhancePanel({
               }
               level="good"
             />
+            <MetricCard
+              className="sm:col-span-2"
+              icon={<Frame className="h-5 w-5" aria-hidden />}
+              title="Proporção da arte"
+              value={`${framing.srcRatio.toFixed(2)} : 1 · destino ${framing.targetRatio.toFixed(2)} : 1`}
+              detail={
+                framing.ratioMatches
+                  ? "Compatível com o tamanho de corte — sem recorte nem margens extras."
+                  : `Difere do corte ${fmtMm(spec.widthMm)} × ${fmtMm(spec.heightMm)} mm — escolha o enquadramento abaixo para evitar distorção.`
+              }
+              level={ratioLevel}
+            />
           </CardContent>
         </Card>
 
@@ -156,6 +207,57 @@ export function EnhancePanel({
             </Button>
           </CardHeader>
           <CardContent className="flex flex-col gap-5">
+            {/* Enquadramento (geometria — nunca distorce em cover/contain) */}
+            <div className="rounded-lg border p-4">
+              <Label className="text-sm font-semibold">Enquadramento no tamanho de corte</Label>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Define como a arte ocupa o corte de {fmtMm(spec.widthMm)} × {fmtMm(spec.heightMm)} mm. Os modos
+                "Preencher" e "Conter" preservam a proporção original — a imagem nunca fica esticada.
+              </p>
+              <RadioGroup
+                value={fitMode}
+                onValueChange={(v) => onFitModeChange(v as FitMode)}
+                className="mt-3 grid gap-2"
+                aria-label="Modo de enquadramento"
+              >
+                {FIT_OPTIONS.map((opt) => (
+                  <Label
+                    key={opt.value}
+                    htmlFor={`fit-${opt.value}`}
+                    className={cn(
+                      "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors font-normal",
+                      fitMode === opt.value
+                        ? "border-amber-600 bg-amber-600/10 ring-1 ring-amber-600"
+                        : "hover:bg-muted/60",
+                    )}
+                  >
+                    <RadioGroupItem id={`fit-${opt.value}`} value={opt.value} className="mt-0.5" />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5 text-sm font-semibold">
+                        {opt.icon}
+                        {opt.label}
+                      </span>
+                      <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{opt.desc}</span>
+                    </span>
+                  </Label>
+                ))}
+              </RadioGroup>
+              <p
+                role={framing.ratioMatches ? undefined : fitMode === "stretch" ? "alert" : "status"}
+                className={cn(
+                  "mt-3 rounded-lg border p-3 text-xs leading-relaxed",
+                  framing.ratioMatches
+                    ? "border-border bg-muted/60 text-muted-foreground"
+                    : fitMode === "stretch"
+                      ? "border-destructive/40 bg-destructive/10 text-destructive"
+                      : "border-amber-600/40 bg-amber-600/10 text-amber-700 dark:text-amber-400",
+                )}
+              >
+                {!framing.ratioMatches && <TriangleAlert className="mr-1.5 inline h-3.5 w-3.5" aria-hidden />}
+                {framingWarning}
+              </p>
+            </div>
+
             {/* Nitidez */}
             <div className="rounded-lg border p-4">
               <div className="flex items-center justify-between">

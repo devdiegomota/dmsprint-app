@@ -2,7 +2,10 @@
  * Tratamento de arte para impressão — 100% client-side via Canvas/pixel ops.
  *
  *  1. preparePrintCanvas(): reamostra a arte para o tamanho exato de impressão (300 DPI)
- *     com interpolação de alta qualidade.
+ *     com interpolação de alta qualidade e enquadramento SEM DISTORÇÃO:
+ *      - "cover"   → preenche o corte inteiro recortando o excesso (centrado);
+ *      - "contain" → arte inteira visível, complementada com margens brancas;
+ *      - "stretch" → estica para preencher (só recomendado se a proporção já bate).
  *  2. unsharpMask(): máscara de contraste (unsharp mask) clássica, com threshold
  *     para não amplificar ruído — recupera nitidez de artes borradas/upscaladas.
  *  3. reinforceThinText(): reforço morfológico (dilação direcionada) que engrossa
@@ -17,6 +20,8 @@ import { type ProductSpec, productPixelSize } from "./constants";
 import { type ImageAnalysis, makeCanvas, blurGray } from "./analysis";
 
 export interface EnhanceSettings {
+  /** Modo de enquadramento aplicado no reamostramento (geometria, não pixel-op). */
+  fitMode: FitMode;
   sharpenEnabled: boolean;
   /** Intensidade do unsharp mask (0–1.5). */
   sharpenAmount: number;
@@ -35,6 +40,7 @@ export function recommendSettings(a: ImageAnalysis): EnhanceSettings {
   const sharpenAmount = a.sharpnessScore < 30 ? 1.15 : a.sharpnessScore < 45 ? 0.95 : a.sharpnessScore < 65 ? 0.65 : 0.35;
   const textStrength = a.thinTextScore >= 70 ? 0.85 : a.thinTextScore >= 45 ? 0.7 : 0.4;
   return {
+    fitMode: "cover",
     sharpenEnabled: true,
     sharpenAmount,
     sharpenRadius: 2,
@@ -45,20 +51,119 @@ export function recommendSettings(a: ImageAnalysis): EnhanceSettings {
   };
 }
 
-/** Reamostra a arte para o tamanho exato de impressão do produto (300 DPI). */
+/** Modo de enquadramento da arte no tamanho de corte. */
+export type FitMode = "cover" | "contain" | "stretch";
+
+export interface FramingInfo {
+  srcRatio: number;
+  targetRatio: number;
+  /** true se a proporção da arte coincide com a do produto (±1,5%). */
+  ratioMatches: boolean;
+  /** Diferença relativa de proporção (0–1). */
+  ratioDiff: number;
+  /** Modo cover: % da dimensão final recortada (corte central). */
+  cropPct: number;
+  cropAxis: "x" | "y" | null;
+  /** Modo contain: % de borda branca EM CADA LADO do eixo indicado. */
+  barPct: number;
+  barAxis: "x" | "y" | null;
+  /** Modo stretch: % de esticamento não-uniforme no eixo indicado. */
+  stretchPct: number;
+  stretchAxis: "x" | "y" | null;
+}
+
+/**
+ * Compara a proporção da arte com a do produto e quantifica o efeito de cada
+ * modo de enquadramento — alimenta os avisos do diagnóstico na UI.
+ */
+export function framingInfo(
+  srcW: number,
+  srcH: number,
+  spec: ProductSpec,
+): FramingInfo {
+  const srcRatio = srcW / srcH;
+  const targetRatio = spec.widthMm / spec.heightMm;
+  const ratioDiff = Math.abs(srcRatio - targetRatio) / targetRatio;
+  const ratioMatches = ratioDiff <= 0.015;
+
+  let cropPct = 0;
+  let cropAxis: "x" | "y" | null = null;
+  let barPct = 0;
+  let barAxis: "x" | "y" | null = null;
+  let stretchPct = 0;
+  let stretchAxis: "x" | "y" | null = null;
+
+  if (!ratioMatches) {
+    if (srcRatio > targetRatio) {
+      // Arte mais larga que o produto.
+      // cover: preenche a altura inteira e recorta as laterais.
+      cropPct = (1 - targetRatio / srcRatio) * 100;
+      cropAxis = "x";
+      // contain: cabe na largura e sobra altura → barras brancas em cima/embaixo.
+      barPct = ((1 - targetRatio / srcRatio) / 2) * 100;
+      barAxis = "y";
+      // stretch: comprime horizontalmente (esticamento vertical aparente).
+      stretchPct = (srcRatio / targetRatio - 1) * 100;
+      stretchAxis = "y";
+    } else {
+      // Arte mais estreita/alta que o produto.
+      // cover: preenche a largura inteira e recorta topo/base.
+      cropPct = (1 - srcRatio / targetRatio) * 100;
+      cropAxis = "y";
+      // contain: cabe na altura e sobra largura → barras brancas nas laterais.
+      barPct = ((1 - srcRatio / targetRatio) / 2) * 100;
+      barAxis = "x";
+      // stretch: estica horizontalmente para alcançar a proporção do corte.
+      stretchPct = (targetRatio / srcRatio - 1) * 100;
+      stretchAxis = "x";
+    }
+  }
+  return { srcRatio, targetRatio, ratioMatches, ratioDiff, cropPct, cropAxis, barPct, barAxis, stretchPct, stretchAxis };
+}
+
+/**
+ * Reamostra a arte para o tamanho exato de impressão do produto (300 DPI),
+ * aplicando o modo de enquadramento. "cover" e "contain" NUNCA distorcem:
+ * preservam a proporção e recortam o excesso (centrado) ou completam com branco.
+ */
 export function preparePrintCanvas(
   source: HTMLCanvasElement,
   spec: ProductSpec,
+  fit: FitMode = "cover",
 ): HTMLCanvasElement {
   const { widthPx, heightPx } = productPixelSize(spec);
   const canvas = makeCanvas(widthPx, heightPx);
   const ctx = canvas.getContext("2d")!;
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  // Fundo branco garante bordas válidas caso a arte tenha transparência (PNG).
+  // Fundo branco garante bordas válidas caso a arte tenha transparência (PNG)
+  // e compõe as margens do modo "contain".
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, widthPx, heightPx);
-  ctx.drawImage(source, 0, 0, widthPx, heightPx);
+
+  const sw = source.width;
+  const sh = source.height;
+
+  if (fit === "stretch") {
+    // Comportamento legado: preenche o tamanho exato (distorce se a proporção diferir).
+    ctx.drawImage(source, 0, 0, widthPx, heightPx);
+    return canvas;
+  }
+
+  if (fit === "cover") {
+    // Escala até cobrir todo o corte e recorta o excesso centralizado.
+    const s = Math.max(widthPx / sw, heightPx / sh);
+    const cropW = Math.min(sw, widthPx / s);
+    const cropH = Math.min(sh, heightPx / s);
+    ctx.drawImage(source, (sw - cropW) / 2, (sh - cropH) / 2, cropW, cropH, 0, 0, widthPx, heightPx);
+    return canvas;
+  }
+
+  // contain: escala para caber inteira, centralizada sobre o branco.
+  const s = Math.min(widthPx / sw, heightPx / sh);
+  const drawW = sw * s;
+  const drawH = sh * s;
+  ctx.drawImage(source, (widthPx - drawW) / 2, (heightPx - drawH) / 2, drawW, drawH);
   return canvas;
 }
 
