@@ -172,3 +172,20 @@ Work Log:
 
 Stage Summary:
 - Projeto saudável: todas as funções das Tasks 1–9 confirmadas no código e em execução E2E; git 100% commitado. Pendências identificadas para os próximos passos: (1) reimplementar o "encaixe do panfleto na A4" (redução automática da peça p/ margens externas confortáveis, integrada ao two-cut sem tocar no resto do pipeline); (2) remover o fóssil crop-dialog.tsx; (3) ligar a restauração por IA à UI (botão no tratamento) — backend já pronto.
+
+---
+Task ID: 10
+Agent: main (Z.ai)
+Task: Teste de redução do panfleto para impressora que morde em TODOS os lados — gerar material de teste (calibração + tamanhos decrescentes) sem afetar o resto do app.
+
+Work Log:
+- Diagnóstico no imposition.ts: panfleto 100×144 mm em 2×2 (two-cut) deixa margens externas de 1,5 mm laterais / 0,6 mm topo / 3,0 mm base — qualquer impressora com zona não imprimível de 3–6 mm morde a arte (relato do usuário confirma).
+- Decisão de método: em vez de vários ciclos de impressão, UM único PDF de 12 páginas: pág. 1 = régua de calibração (1–20 mm nas 4 bordas, fortes a cada 5 mm com etiqueta) que mede a mordida exata por lado; págs. 2–12 = testes A..K com 4 panfletos cada, 10,0×14,4 → 9,0×13,4 cm (passo 1 mm), layout simétrico (folga branca da folha cresce 1 mm/lado por página, de 1,5/1,0 mm até 11,5/11,0 mm), faixa de corte 3,5 mm/peça igual ao app, réguas internas de 10 mm nas peças.
+- scripts/gen_printer_margin_test.py (ReportLab vetorial) → download/teste-margem-impressora-panfleto.pdf (12 págs A4 exato, metadados ImpressA4).
+- scripts/verify_margin_test_pdf.py (pypdfium2 @300 DPI): 35 verificações OK — réguas a 1/20 mm nas 4 bordas, molduras nas posições exatas (A: 1,5/1,0 · C: 3,5/3,0 · K: 11,5/11,0 mm), margem branca externa, faixa central branca, preenchimento da arte, etiquetas. Bugs corrigidos no script: acesso px do PIL e conversão dupla mm→px; renderização pypdfium2 usa origem y=TOPO.
+- Zero mudanças em src/ — nenhuma regressão possível no app nesta etapa.
+
+Stage Summary:
+- Entregue: download/teste-margem-impressora-panfleto.pdf. Instrução: imprimir tudo em escala 100% (sem "ajustar à página"); pág. 1 dá a mordida exata por lado; o MAIOR teste A..K com as 4 molduras inteiras é o tamanho-alvo.
+- Tabela: A 10,0×14,4 (folga 1,5/1,0) · B 9,9×14,3 (2,5/2,0) · C 9,8×14,2 (3,5/3,0) · D 9,7×14,1 (4,5/4,0) · E 9,6×14,0 (5,5/5,0) · F 9,5×13,9 (6,5/6,0) · G 9,4×13,8 (7,5/7,0) · H 9,3×13,7 (8,5/8,0) · I 9,2×13,6 (9,5/9,0) · J 9,1×13,5 (10,5/10,0) · K 9,0×13,4 (11,5/11,0) — folga em mm (laterais / topo-base).
+- Próximo passo (após resultado do usuário): implementar no app a redução do panfleto no modo two-cut com distribuição simétrica (margem da impressora nos 4 lados), travando o tamanho confirmado pelo teste; manter guarda de base e linha de corte intactas.
