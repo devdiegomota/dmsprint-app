@@ -1,0 +1,705 @@
+     1→"use client";
+     2→
+     3→import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+     4→import { Hand, Loader2, Maximize2, RotateCcw, RotateCw, ScanLine, X, ZoomIn, ZoomOut } from "lucide-react";
+     5→import { Button } from "@/components/ui/button";
+     6→import {
+     7→  Dialog,
+     8→  DialogContent,
+     9→  DialogDescription,
+    10→  DialogFooter,
+    11→  DialogHeader,
+    12→  DialogTitle,
+    13→} from "@/components/ui/dialog";
+    14→import { Label } from "@/components/ui/label";
+    15→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+    16→import { cn } from "@/lib/utils";
+    17→import { fmtMm, type ProductSpec } from "@/lib/print/constants";
+    18→import {
+    19→  clampRect,
+    20→  cropEffectiveDpi,
+    21→  cropPresets,
+    22→  detectArtworkBounds,
+    23→  fitRectWithRatio,
+    24→  moveRect,
+    25→  resizeRect,
+    26→  rotateCanvas,
+    27→  rotateRect,
+    28→  type CropHandle,
+    29→  type CropRect,
+    30→} from "@/lib/print/crop";
+    31→
+    32→/** Zoom máximo em relação à imagem ajustada à tela (100% = arte inteira visível). */
+    33→const MAX_ZOOM = 6;
+    34→
+    35→const clampNum = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+    36→
+    37→/** Limita o deslocamento para a imagem nunca sair totalmente da área visível. */
+    38→function clampPan(
+    39→  p: { x: number; y: number },
+    40→  dispW: number,
+    41→  dispH: number,
+    42→  stageW: number,
+    43→  stageH: number,
+    44→) {
+    45→  const mx = Math.max(0, (dispW - stageW) / 2);
+    46→  const my = Math.max(0, (dispH - stageH) / 2);
+    47→  return { x: clampNum(p.x, -mx, mx), y: clampNum(p.y, -my, my) };
+    48→}
+    49→
+    50→/** Posição das 8 alças sobre o quadro de recorte. */
+    51→const HANDLE_POS: Record<Exclude<CropHandle, "move">, React.CSSProperties> = {
+    52→  nw: { left: "0%", top: "0%" },
+    53→  n: { left: "50%", top: "0%" },
+    54→  ne: { left: "100%", top: "0%" },
+    55→  e: { left: "100%", top: "50%" },
+    56→  se: { left: "100%", top: "100%" },
+    57→  s: { left: "50%", top: "100%" },
+    58→  sw: { left: "0%", top: "100%" },
+    59→  w: { left: "0%", top: "50%" },
+    60→};
+    61→
+    62→const HANDLE_CURSOR: Record<Exclude<CropHandle, "move">, string> = {
+    63→  nw: "cursor-nwse-resize",
+    64→  se: "cursor-nwse-resize",
+    65→  ne: "cursor-nesw-resize",
+    66→  sw: "cursor-nesw-resize",
+    67→  n: "cursor-ns-resize",
+    68→  s: "cursor-ns-resize",
+    69→  e: "cursor-ew-resize",
+    70→  w: "cursor-ew-resize",
+    71→};
+    72→
+    73→const HANDLES = Object.keys(HANDLE_POS) as Exclude<CropHandle, "move">[];
+    74→
+    75→interface DragState {
+    76→  handle: CropHandle;
+    77→  startRect: CropRect;
+    78→  startX: number;
+    79→  startY: number;
+    80→}
+    81→
+    82→/**
+    83→ * Diálogo de recorte interativo: quadro arrastável com 8 alças sobre a arte,
+    84→ * trava de proporção, detecção automática de bordas e leitura ao vivo de
+    85→ * px / DPI efetivos no tamanho de corte do produto.
+    86→ * A imagem ocupa todo o espaço disponível (sempre inteira em 100%) e pode ser
+    87→ * ampliada até 6× para conferir a borda da peça com precisão.
+    88→ * Inclui GIRO de 90° (sentido horário/anti-horário) para corrigir artes enviadas
+    89→ * na direção errada (cartão em pé, panfleto deitado) — o giro é aplicado junto
+    90→ * com o recorte ao confirmar; "Cancelar" descarta tudo.
+    91→ */
+    92→export function CropDialog({
+    93→  open,
+    94→  onOpenChange,
+    95→  spec,
+    96→  sourceCanvas,
+    97→  onApply,
+    98→}: {
+    99→  open: boolean;
+   100→  onOpenChange: (v: boolean) => void;
+   101→  spec: ProductSpec;
+   102→  sourceCanvas: HTMLCanvasElement | null;
+   103→  onApply: (rect: CropRect, rotationQuarters: number) => void;
+   104→}) {
+   105→  const [rect, setRect] = useState<CropRect | null>(null);
+   106→  const [ratioId, setRatioId] = useState("product");
+   107→  const [detecting, setDetecting] = useState(false);
+   108→  const [detectHint, setDetectHint] = useState<string | null>(null);
+   109→  const [dataUrl, setDataUrl] = useState<string | null>(null);
+   110→  const [dragging, setDragging] = useState(false);
+   111→  /** Giro aplicado à arte dentro do diálogo, em quartos de volta horários (0–3). */
+   112→  const [rot, setRot] = useState(0);
+   113→
+   114→  // Zoom e navegação da imagem
+   115→  const [zoom, setZoom] = useState(1);
+   116→  const [pan, setPan] = useState({ x: 0, y: 0 });
+   117→  const [hand, setHand] = useState(false);
+   118→  const [panning, setPanning] = useState(false);
+   119→  const [stage, setStage] = useState({ w: 0, h: 0 });
+   120→
+   121→  const stageRef = useRef<HTMLDivElement | null>(null);
+   122→  const stageRoRef = useRef<ResizeObserver | null>(null);
+   123→  const wrapRef = useRef<HTMLDivElement | null>(null);
+   124→  const dragRef = useRef<DragState | null>(null);
+   125→  const panRef = useRef<{ startX: number; startY: number; basePan: { x: number; y: number } } | null>(
+   126→    null,
+   127→  );
+   128→
+   129→  const presets = useMemo(() => cropPresets(spec), [spec]);
+   130→  const ratio = presets.find((p) => p.id === ratioId)?.ratio ?? null;
+   131→
+   132→  // Canvas de trabalho = fonte já girada pelos quartos de volta escolhidos.
+   133→  // Todo o diálogo (preview, detecção, quadro) opera sobre ESTE canvas; o giro
+   134→  // só vira parte do pipeline quando o usuário confirma "Aplicar".
+   135→  const working = useMemo(
+   136→    () => (sourceCanvas && rot !== 0 ? rotateCanvas(sourceCanvas, rot) : sourceCanvas),
+   137→    [sourceCanvas, rot],
+   138→  );
+   139→
+   140→  const W = working?.width ?? 0;
+   141→  const H = working?.height ?? 0;
+   142→
+   143→  // Preview em JPEG leve (a fonte pode ter vários megapixels).
+   144→  useEffect(() => {
+   145→    if (!open || !working) {
+   146→      setDataUrl(null);
+   147→      return;
+   148→    }
+   149→    try {
+   150→      setDataUrl(working.toDataURL("image/jpeg", 0.9));
+   151→    } catch {
+   152→      setDataUrl(null);
+   153→    }
+   154→  }, [open, working]);
+   155→
+   156→  // Ao abrir: trava no produto, quadro centralizado e visualização redefinida.
+   157→  // Roda UMA VEZ por abertura (transição fechado→aberto) — NÃO depende de W/H,
+   158→  // senão um giro dentro do diálogo reencaixaria o quadro por conta própria e
+   159→  // desfaria a transformação feita por setRotation.
+   160→  const wasOpenRef = useRef(false);
+   161→  useEffect(() => {
+   162→    if (open && !wasOpenRef.current && sourceCanvas) {
+   163→      wasOpenRef.current = true;
+   164→      setRot(0);
+   165→      setRatioId("product");
+   166→      setRect(
+   167→        fitRectWithRatio(
+   168→          sourceCanvas.width,
+   169→          sourceCanvas.height,
+   170→          spec.widthMm / spec.heightMm,
+   171→        ),
+   172→      );
+   173→      setDetectHint(null);
+   174→      setDetecting(false);
+   175→      setZoom(1);
+   176→      setPan({ x: 0, y: 0 });
+   177→      setHand(false);
+   178→    }
+   179→    if (!open) wasOpenRef.current = false;
+   180→  }, [open, sourceCanvas, spec]);
+   181→
+   182→  // Mede a área da imagem via CALLBACK REF — o conteúdo do diálogo (portal Radix)
+   183→  // monta depois do primeiro passe de efeitos, então um useEffect [open] via cedo
+   184→  // e nunca re-tenta. O callback ref roda exatamente na montagem do elemento.
+   185→  const attachStage = useCallback((el: HTMLDivElement | null) => {
+   186→    stageRef.current = el;
+   187→    stageRoRef.current?.disconnect();
+   188→    stageRoRef.current = null;
+   189→    if (el) {
+   190→      const measure = () => setStage({ w: el.clientWidth, h: el.clientHeight });
+   191→      measure();
+   192→      const ro = new ResizeObserver(measure);
+   193→      ro.observe(el);
+   194→      stageRoRef.current = ro;
+   195→    }
+   196→  }, []);
+   197→
+   198→  // Escala "ajustada" (imagem inteira visível) e tamanho exibido com o zoom atual.
+   199→  const fitScale =
+   200→    stage.w > 48 && stage.h > 48 && W > 0 && H > 0
+   201→      ? Math.min((stage.w - 32) / W, (stage.h - 32) / H)
+   202→      : 0;
+   203→  const dispW = fitScale > 0 ? W * fitScale * zoom : 0;
+   204→  const dispH = fitScale > 0 ? H * fitScale * zoom : 0;
+   205→
+   206→  const panClamped = useCallback(
+   207→    (p: { x: number; y: number }, z: number) =>
+   208→      clampPan(p, W * fitScale * z, H * fitScale * z, stage.w, stage.h),
+   209→    [W, H, fitScale, stage],
+   210→  );
+   211→
+   212→  const applyZoom = useCallback(
+   213→    (target: number, anchor?: { cx: number; cy: number }) => {
+   214→      const next = clampNum(target, 1, MAX_ZOOM);
+   215→      if (!Number.isFinite(next) || next === zoom || fitScale === 0) return;
+   216→      if (anchor) {
+   217→        const k = next / zoom;
+   218→        setPan(
+   219→          panClamped(
+   220→            { x: anchor.cx - (anchor.cx - pan.x) * k, y: anchor.cy - (anchor.cy - pan.y) * k },
+   221→            next,
+   222→          ),
+   223→        );
+   224→      } else {
+   225→        setPan((p) => panClamped(p, next));
+   226→      }
+   227→      setZoom(next);
+   228→    },
+   229→    [zoom, pan, fitScale, panClamped],
+   230→  );
+   231→
+   232→  /**
+   233→   * Aplica `next` quartos de volta (horários) à vista. O quadro acompanha:
+   234→   * com trava de proporção, reencaixa na proporção travada na nova direção;
+   235→   * em modo livre, a MESMA região selecionada é transformada junto com a imagem.
+   236→   */
+   237→  const setRotation = (next: number) => {
+   238→    if (!rect || W === 0 || H === 0) return;
+   239→    const delta = (((next - rot) % 4) + 4) % 4;
+   240→    if (delta === 0) return;
+   241→    const nw = delta % 2 === 1 ? H : W;
+   242→    const nh = delta % 2 === 1 ? W : H;
+   243→    if (ratio) {
+   244→      setRect(fitRectWithRatio(nw, nh, ratio));
+   245→    } else {
+   246→      setRect(clampRect(rotateRect(rect, delta, W, H), nw, nh));
+   247→    }
+   248→    setRot(((next % 4) + 4) % 4);
+   249→    setZoom(1);
+   250→    setPan({ x: 0, y: 0 });
+   251→    setDetectHint(null);
+   252→  };
+   253→
+   254→  const handleRatioChange = (id: string) => {
+   255→    setRatioId(id);
+   256→    const r = presets.find((p) => p.id === id)?.ratio ?? null;
+   257→    if (r && W > 0 && H > 0) setRect(fitRectWithRatio(W, H, r));
+   258→  };
+   259→
+   260→  const handleDetect = () => {
+   261→    if (!working || detecting) return;
+   262→    setDetecting(true);
+   263→    setDetectHint(null);
+   264→    // Pequeno atraso para o spinner pintar antes do cálculo síncrono.
+   265→    setTimeout(() => {
+   266→      try {
+   267→        const found = detectArtworkBounds(working);
+   268→        if (found) {
+   269→          setRect(found);
+   270→          setRatioId("free"); // a detecção reflete a proporção real da peça
+   271→          setDetectHint(null);
+   272→        } else {
+   273→          setDetectHint(
+   274→            "Não consegui identificar a borda com confiança — arraste as alças até a borda da peça.",
+   275→          );
+   276→        }
+   277→      } finally {
+   278→        setDetecting(false);
+   279→      }
+   280→    }, 40);
+   281→  };
+   282→
+   283→  // Converte coordenadas de tela para pixels da imagem (funciona com zoom e pan:
+   284→  // getBoundingClientRect reflete a posição/tamanho visuais do quadro).
+   285→  const toImage = (clientX: number, clientY: number) => {
+   286→    const el = wrapRef.current;
+   287→    if (!el || W === 0 || H === 0) return null;
+   288→    const r = el.getBoundingClientRect();
+   289→    return { x: ((clientX - r.left) / r.width) * W, y: ((clientY - r.top) / r.height) * H };
+   290→  };
+   291→
+   292→  const startDrag = (handle: CropHandle) => (e: React.PointerEvent) => {
+   293→    if (!rect) return;
+   294→    e.preventDefault();
+   295→    e.stopPropagation();
+   296→    const p = toImage(e.clientX, e.clientY);
+   297→    if (!p) return;
+   298→    dragRef.current = { handle, startRect: rect, startX: p.x, startY: p.y };
+   299→    setDragging(true);
+   300→  };
+   301→
+   302→  const startPan = (e: React.PointerEvent) => {
+   303→    e.preventDefault();
+   304→    e.stopPropagation();
+   305→    panRef.current = { startX: e.clientX, startY: e.clientY, basePan: pan };
+   306→    setPanning(true);
+   307→  };
+   308→
+   309→  // Clique na imagem: dentro do quadro (ou zoom 100%) move o quadro;
+   310→  // fora do quadro com zoom, ou no modo mãozinha, navega pela imagem.
+   311→  const onImagePointerDown = (e: React.PointerEvent) => {
+   312→    if (!rect) return;
+   313→    const p = toImage(e.clientX, e.clientY);
+   314→    const inside =
+   315→      p && p.x >= rect.x && p.x <= rect.x + rect.width && p.y >= rect.y && p.y <= rect.y + rect.height;
+   316→    if (hand || (!inside && zoom > 1)) {
+   317→      startPan(e);
+   318→    } else {
+   319→      startDrag("move")(e);
+   320→    }
+   321→  };
+   322→
+   323→  // Loop de arrasto do quadro em nível de janela (sobrevive a sair da imagem).
+   324→  useEffect(() => {
+   325→    if (!dragging) return;
+   326→    const onMove = (ev: PointerEvent) => {
+   327→      const d = dragRef.current;
+   328→      if (!d) return;
+   329→      const p = toImage(ev.clientX, ev.clientY);
+   330→      if (!p) return;
+   331→      if (d.handle === "move") {
+   332→        setRect(moveRect(d.startRect, p.x - d.startX, p.y - d.startY, W, H));
+   333→      } else {
+   334→        setRect(resizeRect(d.startRect, d.handle, p.x, p.y, ratio, W, H));
+   335→      }
+   336→    };
+   337→    const onUp = () => {
+   338→      dragRef.current = null;
+   339→      setDragging(false);
+   340→    };
+   341→    window.addEventListener("pointermove", onMove);
+   342→    window.addEventListener("pointerup", onUp);
+   343→    window.addEventListener("pointercancel", onUp);
+   344→    return () => {
+   345→      window.removeEventListener("pointermove", onMove);
+   346→      window.removeEventListener("pointerup", onUp);
+   347→      window.removeEventListener("pointercancel", onUp);
+   348→    };
+   349→  }, [dragging, ratio, W, H]);
+   350→
+   351→  // Loop de arrasto do pan (navegação da imagem ampliada).
+   352→  useEffect(() => {
+   353→    if (!panning) return;
+   354→    const onMove = (ev: PointerEvent) => {
+   355→      const d = panRef.current;
+   356→      if (!d) return;
+   357→      setPan(panClamped({ x: d.basePan.x + (ev.clientX - d.startX), y: d.basePan.y + (ev.clientY - d.startY) }, zoom));
+   358→    };
+   359→    const onUp = () => {
+   360→      panRef.current = null;
+   361→      setPanning(false);
+   362→    };
+   363→    window.addEventListener("pointermove", onMove);
+   364→    window.addEventListener("pointerup", onUp);
+   365→    window.addEventListener("pointercancel", onUp);
+   366→    return () => {
+   367→      window.removeEventListener("pointermove", onMove);
+   368→      window.removeEventListener("pointerup", onUp);
+   369→      window.removeEventListener("pointercancel", onUp);
+   370→    };
+   371→  }, [panning, zoom, panClamped]);
+   372→
+   373→  // Ctrl + roda do mouse (ou pinça no trackpad): zoom centrado no cursor.
+   374→  useEffect(() => {
+   375→    const el = stageRef.current;
+   376→    if (!el || !open || fitScale === 0) return;
+   377→    const onWheel = (e: WheelEvent) => {
+   378→      if (!e.ctrlKey) return;
+   379→      e.preventDefault();
+   380→      const r = el.getBoundingClientRect();
+   381→      applyZoom(zoom * (e.deltaY < 0 ? 1.2 : 1 / 1.2), {
+   382→        cx: e.clientX - (r.left + r.width / 2),
+   383→        cy: e.clientY - (r.top + r.height / 2),
+   384→      });
+   385→    };
+   386→    el.addEventListener("wheel", onWheel, { passive: false });
+   387→    return () => el.removeEventListener("wheel", onWheel);
+   388→  }, [open, fitScale, zoom, applyZoom]);
+   389→
+   390→  // Mantém o pan válido quando a área/zoom muda (ex.: redimensionar a janela).
+   391→  useEffect(() => {
+   392→    setPan((p) => panClamped(p, zoom));
+   393→  }, [stage, fitScale, zoom, panClamped]);
+   394→
+   395→  // Setas do teclado: move o quadro em 1 px (Shift = 10 px).
+   396→  useEffect(() => {
+   397→    if (!open) return;
+   398→    const onKey = (e: KeyboardEvent) => {
+   399→      const target = e.target as HTMLElement | null;
+   400→      if (target?.closest?.('[role="listbox"], [role="option"], [role="menu"]')) return;
+   401→      const step = e.shiftKey ? 10 : 1;
+   402→      const delta =
+   403→        e.key === "ArrowLeft"
+   404→          ? [-step, 0]
+   405→          : e.key === "ArrowRight"
+   406→            ? [step, 0]
+   407→            : e.key === "ArrowUp"
+   408→              ? [0, -step]
+   409→              : e.key === "ArrowDown"
+   410→                ? [0, step]
+   411→                : null;
+   412→      if (!delta) return;
+   413→      e.preventDefault();
+   414→      setRect((r) => (r ? moveRect(r, delta[0], delta[1], W, H) : r));
+   415→    };
+   416→    window.addEventListener("keydown", onKey);
+   417→    return () => window.removeEventListener("keydown", onKey);
+   418→  }, [open, W, H]);
+   419→
+   420→  const handleApply = () => {
+   421→    if (!rect || W === 0 || H === 0) return;
+   422→    onApply(clampRect(rect, W, H), rot);
+   423→    onOpenChange(false);
+   424→  };
+   425→
+   426→  const dpi = rect ? cropEffectiveDpi(rect, spec) : null;
+   427→  const dpiColor =
+   428→    dpi === null ? "" : dpi >= 300 ? "text-emerald-600 dark:text-emerald-400" : dpi >= 200 ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400";
+   429→  const ratioDisplay = rect ? (rect.width / Math.max(1, rect.height)).toFixed(2) : null;
+   430→  const atFit = zoom === 1 && pan.x === 0 && pan.y === 0;
+   431→  /** Quadro cobrindo a imagem inteira — recorte vira só a rotação. */
+   432→  const isFullFrame =
+   433→    !!rect && rect.x <= 0 && rect.y <= 0 && rect.width >= W && rect.height >= H;
+   434→
+   435→  return (
+   436→    <Dialog open={open} onOpenChange={onOpenChange}>
+   437→      <DialogContent className="flex h-[94vh] w-full sm:max-w-6xl flex-col overflow-hidden">
+   438→        <DialogHeader>
+   439→          <DialogTitle>Recortar a arte</DialogTitle>
+   440→          <DialogDescription>
+   441→            Arraste as alças até a borda exata do cartão/panfleto (arraste dentro do quadro para
+   442→            mover). Tudo que ficar fora do quadro é descartado — inclusive o fundo do ambiente. Arte
+   443→            de pé ou deitada? Use os botões <strong className="font-semibold">Girar</strong> para
+   444→            corrigir a direção antes de recortar.
+   445→          </DialogDescription>
+   446→        </DialogHeader>
+   447→
+   448→        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+   449→          {/* Barra de ferramentas */}
+   450→          <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+   451→            <Button variant="outline" size="sm" onClick={handleDetect} disabled={detecting || !working}>
+   452→              {detecting ? (
+   453→                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+   454→              ) : (
+   455→                <ScanLine className="h-4 w-4" aria-hidden />
+   456→              )}
+   457→              {detecting ? "Detectando…" : "Detectar bordas"}
+   458→            </Button>
+   459→            <div
+   460→              className="flex items-center gap-0.5 rounded-lg border bg-background p-0.5"
+   461→              role="group"
+   462→              aria-label="Girar a arte"
+   463→            >
+   464→              <Button
+   465→                type="button"
+   466→                variant="ghost"
+   467→                size="icon"
+   468→                className="h-8 w-8"
+   469→                aria-label="Girar 90 graus à esquerda (anti-horário)"
+   470→                title="Girar 90° à esquerda (anti-horário)"
+   471→                onClick={() => setRotation(rot + 3)}
+   472→                disabled={!working}
+   473→              >
+   474→                <RotateCcw className="h-4 w-4" aria-hidden />
+   475→              </Button>
+   476→              <span
+   477→                className="w-9 text-center font-mono text-xs tabular-nums text-muted-foreground"
+   478→                aria-live="polite"
+   479→              >
+   480→                {rot * 90}°
+   481→              </span>
+   482→              <Button
+   483→                type="button"
+   484→                variant="ghost"
+   485→                size="icon"
+   486→                className="h-8 w-8"
+   487→                aria-label="Girar 90 graus à direita (sentido horário)"
+   488→                title="Girar 90° à direita (sentido horário)"
+   489→                onClick={() => setRotation(rot + 1)}
+   490→                disabled={!working}
+   491→              >
+   492→                <RotateCw className="h-4 w-4" aria-hidden />
+   493→              </Button>
+   494→              {rot !== 0 && (
+   495→                <Button
+   496→                  type="button"
+   497→                  variant="ghost"
+   498→                  size="icon"
+   499→                  className="h-8 w-8 text-amber-600 hover:text-amber-700"
+   500→                  aria-label="Desfazer o giro (voltar à direção original)"
+   501→                  title="Voltar à direção original"
+   502→                  onClick={() => setRotation(0)}
+   503→                >
+   504→                  <X className="h-4 w-4" aria-hidden />
+   505→                </Button>
+   506→              )}
+   507→            </div>
+   508→            <div className="flex items-center gap-2">
+   509→              <Label className="shrink-0 text-xs text-muted-foreground">Proporção</Label>
+   510→              <Select value={ratioId} onValueChange={handleRatioChange}>
+   511→                <SelectTrigger aria-label="Trava de proporção do recorte" className="h-9 w-[240px] text-xs sm:w-[280px]">
+   512→                  <SelectValue />
+   513→                </SelectTrigger>
+   514→                <SelectContent>
+   515→                  {presets.map((p) => (
+   516→                    <SelectItem key={p.id} value={p.id}>
+   517→                      {p.label}
+   518→                    </SelectItem>
+   519→                  ))}
+   520→                </SelectContent>
+   521→              </Select>
+   522→            </div>
+   523→            <div className="ml-auto text-right">
+   524→              {rect && (
+   525→                <>
+   526→                  <p className="font-mono text-sm font-semibold leading-tight">
+   527→                    {rect.width} × {rect.height} px · {ratioDisplay}:1
+   528→                  </p>
+   529→                  <p className={cn("text-xs leading-tight", dpiColor)}>
+   530→                    ≈ {dpi} DPI no corte {fmtMm(spec.widthMm)} × {fmtMm(spec.heightMm)} mm
+   531→                  </p>
+   532→                </>
+   533→              )}
+   534→            </div>
+   535→          </div>
+   536→
+   537→          {detectHint && (
+   538→            <p className="rounded-lg border border-amber-600/40 bg-amber-600/10 p-3 text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+   539→              {detectHint}
+   540→            </p>
+   541→          )}
+   542→
+   543→          {/* Área da imagem — usa todo o espaço restante; em 100% a arte aparece INTEIRA */}
+   544→          <div
+   545→            ref={attachStage}
+   546→            className="relative flex min-h-[260px] flex-1 items-center justify-center overflow-hidden rounded-lg border bg-muted/40"
+   547→          >
+   548→            {dataUrl && rect && W > 0 && H > 0 && fitScale > 0 ? (
+   549→              <>
+   550→                <div
+   551→                  ref={wrapRef}
+   552→                  className={cn(
+   553→                    "relative shrink-0 select-none",
+   554→                    dragging ? "cursor-move" : panning ? "cursor-grabbing" : hand ? "cursor-grab" : "cursor-move",
+   555→                  )}
+   556→                  style={{
+   557→                    width: dispW,
+   558→                    height: dispH,
+   559→                    transform: `translate(${pan.x}px, ${pan.y}px)`,
+   560→                    touchAction: "none",
+   561→                  }}
+   562→                  onPointerDown={onImagePointerDown}
+   563→                >
+   564→                  <img
+   565→                    src={dataUrl}
+   566→                    alt="Arte carregada para recorte"
+   567→                    draggable={false}
+   568→                    className="pointer-events-none block h-full w-full"
+   569→                  />
+   570→
+   571→                  {/* Quadro de recorte — a sombra escurece tudo fora dele */}
+   572→                  <div
+   573→                    className="absolute cursor-move shadow-[0_0_0_9999px_rgba(0,0,0,0.5)] ring-2 ring-amber-500"
+   574→                    style={{
+   575→                      left: `${(rect.x / W) * 100}%`,
+   576→                      top: `${(rect.y / H) * 100}%`,
+   577→                      width: `${(rect.width / W) * 100}%`,
+   578→                      height: `${(rect.height / H) * 100}%`,
+   579→                    }}
+   580→                  >
+   581→                    {/* Guias de terços */}
+   582→                    <div className="pointer-events-none absolute inset-0" aria-hidden>
+   583→                      <div className="absolute inset-y-0 left-1/3 w-px bg-white/30" />
+   584→                      <div className="absolute inset-y-0 left-2/3 w-px bg-white/30" />
+   585→                      <div className="absolute inset-x-0 top-1/3 h-px bg-white/30" />
+   586→                      <div className="absolute inset-x-0 top-2/3 h-px bg-white/30" />
+   587→                    </div>
+   588→
+   589→                    {HANDLES.map((h) => (
+   590→                      <div
+   591→                        key={h}
+   592→                        role="slider"
+   593→                        aria-label={`Alça ${h.toUpperCase()}`}
+   594→                        aria-valuenow={Math.round(rect.width)}
+   595→                        onPointerDown={startDrag(h)}
+   596→                        className={cn(
+   597→                          "absolute z-10 flex h-9 w-9 items-center justify-center",
+   598→                          HANDLE_CURSOR[h],
+   599→                        )}
+   600→                        style={HANDLE_POS[h]}
+   601→                      >
+   602→                        <div className="h-3 w-3 rounded-[3px] border-2 border-amber-600 bg-white shadow-sm" />
+   603→                      </div>
+   604→                    ))}
+   605→                  </div>
+   606→                </div>
+   607→
+   608→                {/* Controles de zoom flutuantes */}
+   609→                <div className="absolute bottom-3 right-3 z-10 flex items-center gap-0.5 rounded-full border bg-background/95 p-1 shadow-sm backdrop-blur">
+   610→                  <Button
+   611→                    type="button"
+   612→                    variant="ghost"
+   613→                    size="icon"
+   614→                    className="h-7 w-7"
+   615→                    aria-label="Reduzir o zoom"
+   616→                    onClick={() => applyZoom(zoom / 1.5)}
+   617→                    disabled={zoom <= 1}
+   618→                  >
+   619→                    <ZoomOut className="h-4 w-4" aria-hidden />
+   620→                  </Button>
+   621→                  <span className="w-11 text-center font-mono text-xs tabular-nums" aria-live="polite">
+   622→                    {Math.round(zoom * 100)}%
+   623→                  </span>
+   624→                  <Button
+   625→                    type="button"
+   626→                    variant="ghost"
+   627→                    size="icon"
+   628→                    className="h-7 w-7"
+   629→                    aria-label="Ampliar o zoom"
+   630→                    onClick={() => applyZoom(zoom * 1.5)}
+   631→                    disabled={zoom >= MAX_ZOOM}
+   632→                  >
+   633→                    <ZoomIn className="h-4 w-4" aria-hidden />
+   634→                  </Button>
+   635→                  <div className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+   636→                  <Button
+   637→                    type="button"
+   638→                    variant="ghost"
+   639→                    size="icon"
+   640→                    className="h-7 w-7"
+   641→                    aria-label="Ajustar a imagem inteira na tela"
+   642→                    title="Ajustar (ver a arte inteira)"
+   643→                    onClick={() => {
+   644→                      setZoom(1);
+   645→                      setPan({ x: 0, y: 0 });
+   646→                    }}
+   647→                    disabled={atFit}
+   648→                  >
+   649→                    <Maximize2 className="h-4 w-4" aria-hidden />
+   650→                  </Button>
+   651→                  <Button
+   652→                    type="button"
+   653→                    variant={hand ? "default" : "ghost"}
+   654→                    size="icon"
+   655→                    className={cn("h-7 w-7", hand && "bg-amber-600 text-white hover:bg-amber-700")}
+   656→                    aria-label="Modo navegar pela imagem"
+   657→                    aria-pressed={hand}
+   658→                    title="Navegar pela imagem ampliada"
+   659→                    onClick={() => setHand((v) => !v)}
+   660→                  >
+   661→                    <Hand className="h-4 w-4" aria-hidden />
+   662→                  </Button>
+   663→                </div>
+   664→
+   665→                {zoom > 1 && !hand && (
+   666→                  <p className="absolute bottom-3 left-3 z-10 rounded-full bg-background/85 px-3 py-1 text-[11px] leading-none text-muted-foreground shadow-sm">
+   667→                    Arraste fora do quadro para navegar pela imagem
+   668→                  </p>
+   669→                )}
+   670→              </>
+   671→            ) : (
+   672→              <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
+   673→                Preparando a imagem…
+   674→              </div>
+   675→            )}
+   676→          </div>
+   677→
+   678→          <p className="text-center text-xs text-muted-foreground">
+   679→            Dica: use o zoom (Ctrl + roda do mouse ou os botões) para conferir a borda da peça de
+   680→            perto. As setas do teclado movem o quadro em 1 px (Shift + seta = 10 px). A trava
+   681→            &ldquo;{spec.name}&rdquo; mantém a proporção exata do tamanho de corte.
+   682→          </p>
+   683→        </div>
+   684→
+   685→        <DialogFooter className="gap-2 border-t pt-3">
+   686→          <Button variant="outline" onClick={() => onOpenChange(false)}>
+   687→            Cancelar
+   688→          </Button>
+   689→          <Button
+   690→            onClick={handleApply}
+   691→            disabled={!rect}
+   692→            className="bg-amber-600 text-white hover:bg-amber-700"
+   693→          >
+   694→            {rot === 0
+   695→              ? "Aplicar recorte"
+   696→              : isFullFrame
+   697→                ? "Aplicar rotação"
+   698→                : "Aplicar rotação e recorte"}
+   699→          </Button>
+   700→        </DialogFooter>
+   701→      </DialogContent>
+   702→    </Dialog>
+   703→  );
+   704→}
+   705→
