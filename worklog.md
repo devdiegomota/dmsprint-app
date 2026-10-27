@@ -189,3 +189,22 @@ Stage Summary:
 - Entregue: download/teste-margem-impressora-panfleto.pdf. Instrução: imprimir tudo em escala 100% (sem "ajustar à página"); pág. 1 dá a mordida exata por lado; o MAIOR teste A..K com as 4 molduras inteiras é o tamanho-alvo.
 - Tabela: A 10,0×14,4 (folga 1,5/1,0) · B 9,9×14,3 (2,5/2,0) · C 9,8×14,2 (3,5/3,0) · D 9,7×14,1 (4,5/4,0) · E 9,6×14,0 (5,5/5,0) · F 9,5×13,9 (6,5/6,0) · G 9,4×13,8 (7,5/7,0) · H 9,3×13,7 (8,5/8,0) · I 9,2×13,6 (9,5/9,0) · J 9,1×13,5 (10,5/10,0) · K 9,0×13,4 (11,5/11,0) — folga em mm (laterais / topo-base).
 - Próximo passo (após resultado do usuário): implementar no app a redução do panfleto no modo two-cut com distribuição simétrica (margem da impressora nos 4 lados), travando o tamanho confirmado pelo teste; manter guarda de base e linha de corte intactas.
+
+---
+Task ID: 11
+Agent: main (Z.ai)
+Task: Travar o tamanho do panfleto no app com o resultado do teste de impressão (usuário validou o teste C = 9,8 × 14,2 cm "certinho") — sem afetar o resto do app.
+
+Work Log:
+- constants.ts: panfleto widthMm 100→98, heightMm 144→142 + comentário do motivo (teste C validado em impressora real: mordida ≤3,5 mm lat / ≤3,0 mm topo-base) + spacingNote atualizada.
+- Matemática intacta: imposition.ts deriva tudo da spec; com 98×142 + guarda 3,0 mm, a distribuição existente reproduz o teste C: margens 3,55 lat / 3,13 topo / 2,96 base; folga de corte volta a 3,5 mm completos por peça nos dois eixos (antes 3,5 lat × 2,7 vert).
+- Textos de UI: export-panel (dica agora diz para imprimir no modo NORMAL, sem precisar de "Sem margens"; nota da guarda explica que o branco extra sai do topo), preview-panel (nota de margem externa genérica validada), imposition.ts (header + comentário do MAX_BOTTOM_GUARD).
+- Lint OK, build OK.
+- E2E agent-browser (upload injetado via fetch+DataTransfer porque o upload nativo do daemon travava 3×; botões clicados via eval por texto): fluxo completo de 5 etapas; UI mostra "Panfleto / Encarte 98 × 142 mm · 4 por folha · 2×2"; recorte/rotação 90° presentes na etapa 2; canvas da folha medido por pixel: margens 3,56/3,56/3,13/2,96 mm, grade 202,86×290,91 mm.
+- PDF exportado capturado no browser (monkey-patch URL.createObjectURL → blob → base64 em 4 blocos → scripts/exported.pdf, 294.746 bytes) e validado com pypdfium2 (scripts/verify_pdf_98x142.py, 14 checks OK): 1 página A4 exata, margens 3,56/3,56/3,05/2,96 mm, peças 97,93×141,96 mm (= 98×142 nominal), faixas brancas centrais em x=105/y=148,5 mm, 4 peças com arte.
+- Nota técnica: raster do PDF usa JPEG (DCTDecode) — verificação pixel precisa threshold imune a ruído (conteúdo < 240; branco ≥ 246); com threshold estrito (>250) artefatos de ±6 níveis falsam o bounding box (causa dos primeiros 7 FAILs, todos falsos positivos).
+- Limpeza: arte de teste removida de public/, daemon do browser fechado.
+
+Stage Summary:
+- Panfleto agora sai 98×142 mm com 3,5 mm (lat.) e ≈3,0 mm (topo/base) de branco nas bordas da folha — exatamente a geometria que o usuário imprimiu e aprovou. Impressão no modo normal (sem borderless) é segura; guarda de base padrão 3,0 mm mantida (slider continua para impressoras diferentes); recorte, rotação, tratamento, linha de corte e exportação intactos.
+- Pendências herdadas da vistoria (Task 10): remover fóssil crop-dialog.tsx; ligar a restauração por IA à UI (backend pronto).

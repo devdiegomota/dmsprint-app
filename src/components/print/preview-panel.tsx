@@ -159,8 +159,8 @@ export function PreviewPanel({
                 )}
                 <p className="mt-1 text-xs text-muted-foreground">
                   Margem externa: {fmtMm(pxToMm(layout.outerLeftPx))} mm (lat.) × {fmtMm(pxToMm(layout.outerTopPx))} mm
-                  (topo) / {fmtMm(pxToMm(layout.outerBottomPx))} mm (base) — a base leva branco extra porque é ali que a
-                  margem não imprimível da impressora morde, mesmo no modo &quot;sem margens&quot;.
+                  (topo) / {fmtMm(pxToMm(layout.outerBottomPx))} mm (base) — branco calculado para absorver a margem não
+                  imprimível da impressora em todos os lados (validado em impressora real).
                 </p>
               </div>
             </div>

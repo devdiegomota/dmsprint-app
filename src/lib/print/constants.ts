@@ -58,14 +58,18 @@ export const PRODUCTS: Record<ProductId, ProductSpec> = {
   panfleto: {
     id: "panfleto",
     name: "Panfleto / Encarte",
-    widthMm: 100,
-    heightMm: 144,
+    // 98 × 142 mm — reduzido de 100 × 144 (−2 mm por dimensão) e VALIDADO em impressora
+    // real (teste "C" do PDF de calibração): com esse tamanho a grade 2 × 2 deixa
+    // ≈3,5 mm (lat.) e ≈3,0 mm (topo/base) de branco nas bordas da folha, absorvendo a
+    // margem não imprimível da impressora em TODOS os lados sem morder a arte.
+    widthMm: 98,
+    heightMm: 142,
     unitsPerSheet: 4,
     cols: 2,
     rows: 2,
     gapMode: "two-cut",
     spacingNote:
-      "Exato para 2 cortes na guilhotina (1 vertical + 1 horizontal): ≈3,5 mm (lat.) de borda branca por peça na linha de corte e reserva de branco ajustável na base da folha para a margem não imprimível da impressora.",
+      "Exato para 2 cortes na guilhotina (1 vertical + 1 horizontal): ≈3,5 mm de borda branca por peça na linha de corte (lat. e vert.) e ≈3,0–3,5 mm de branco nas bordas da folha para a margem não imprimível da impressora (validado em impressora real).",
   },
 };
 

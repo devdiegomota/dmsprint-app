@@ -3,12 +3,14 @@
  *
  *  - Cartão de Visita: grade 2 × 5 = 10 unidades COLADAS (gap 0), bloco centralizado
  *    — ideal para corte em guilhotina (corta-se a pilha em tiras e depois em peças).
- *  - Panfleto: grade 2 × 2 = 4 unidades com layout EXATO PARA 2 CORTES de guilhotina:
- *    1 corte vertical (a 105 mm da lateral) e 1 horizontal (no meio da faixa branca
- *    central). Observação: 3,5 mm em TODOS os lados de todas as peças exigiria
- *    214 × 302 mm — não cabe no A4. A folga vertical (9 mm) é distribuída por
- *    prioridade: (1) GUARDA DE BASE ajustável (padrão 3,0 mm — medido em impressora
- *    real: a zona não imprimível na base chega a ~3 mm mesmo no modo "sem margens"),
+ *  - Panfleto: grade 2 × 2 = 4 unidades de 98 × 142 mm com layout EXATO PARA 2 CORTES
+ *    de guilhotina: 1 corte vertical (a 105 mm da lateral) e 1 horizontal (no meio da
+ *    faixa branca central). A peça foi reduzida de 100 × 144 para 98 × 142 mm e
+ *    VALIDADA em impressora real (teste "C" do PDF de calibração da pasta scripts/):
+ *    com esse tamanho a folga absorve a margem não imprimível da impressora em TODOS
+ *    os lados — ≈3,5 mm por peça na linha de corte e ≈3,0–3,5 mm de branco nas bordas
+ *    da folha. Distribuição vertical por prioridade: (1) GUARDA DE BASE ajustável
+ *    (padrão 3,0 mm — validado: deixa ≈3,0 mm de branco no topo e na base),
  *    (2) seguro mínimo de 0,5 mm no topo, (3) o resto vai para a folga da linha de
  *    corte (até 3,5 mm por peça). A guarda é ajustável na UI porque cada impressora
  *    tem uma margem não imprimível diferente na base.
@@ -97,7 +99,7 @@ export const CUT_LINE_COLOR = "#c8c8c8";
  * pois o valor exato varia por modelo.
  */
 export const DEFAULT_BOTTOM_GUARD_MM = 3;
-/** Limite do slider na UI — acima disso a folga de corte vertical ficaria < 2 mm. */
+/** Limite do slider na UI — valores altos transferem o branco do topo para a base. */
 export const MAX_BOTTOM_GUARD_MM = 5;
 /** Seguro mínimo no topo (a margem não imprimível do topo é ~0 em borderless). */
 const MIN_TOP_MARGIN_PX = mmToPx(0.5); // 6 px

@@ -150,11 +150,11 @@ export function ExportPanel({
                 <li className="flex gap-2">
                   <Printer className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
                   <span>
-                    Impressora doméstica: ative <strong className="text-foreground">&quot;Sem margens&quot;</strong> (borda a
-                    borda) — e mesmo assim a base da folha costuma ter de 1 a 3 mm não imprimíveis (varia por modelo). O
-                    layout já reserva branco extra na base para proteger o rodapé dos panfletos de baixo; se ainda
-                    morder a arte, aumente o <strong className="text-foreground">ajuste para a sua impressora</strong> no
-                    bloco abaixo e gere o PDF novamente.
+                    Impressora doméstica: o panfleto já sai com ≈3,5 mm (lat.) e ≈3,0 mm (topo/base) de branco nas
+                    bordas da folha — imprima no <strong className="text-foreground">modo normal</strong>, sem precisar
+                    de &quot;Sem margens&quot; (validado em impressora real). Se ainda morder a arte em alguma borda,
+                    aumente o <strong className="text-foreground">ajuste para a sua impressora</strong> no bloco abaixo
+                    e gere o PDF novamente.
                   </span>
                 </li>
               )}
@@ -210,9 +210,9 @@ export function ExportPanel({
                   className="mt-3"
                 />
                 <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                  Cada impressora tem uma zona não imprimível diferente na base. Se, mesmo com &quot;Sem margens&quot; e
-                  escala 100%, a arte ainda for mordida embaixo, suba este valor em passos de 0,5 mm e gere o PDF de
-                  novo — o conteúdo sobe na folha e o branco da base engorda (o topo mantém no mínimo 0,5 mm). As duas
+                  Cada impressora tem uma zona não imprimível diferente na base. O padrão de 3,0 mm foi validado em
+                  impressora real: sobra ≈3,0 mm de branco no topo e na base da folha. Suba este valor em passos de
+                  0,5 mm só se a base ainda for mordida — o branco extra sai do topo, que fica mais justo. As duas
                   linhas de corte da guilhotina acompanham o ajuste automaticamente.
                 </p>
               </div>
