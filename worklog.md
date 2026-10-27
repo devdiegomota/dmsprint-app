@@ -223,3 +223,19 @@ Work Log:
 
 Stage Summary:
 - App 100% funcional e homologado em impressora real; Tasks 1–11 confirmadas no código. Dívida técnica mapeada: (1) remover crop-dialog.tsx (−704 linhas mortas); (2) ligar "Restaurar com IA" à UI da etapa 3 (backend 100% pronto, ~40 linhas de integração); (3) opcional: limpar scaffolding Prisma/api raiz. Nenhuma mudança de código nesta task (auditoria read-only).
+
+---
+Task ID: 13
+Agent: main (Z.ai)
+Task: Transplante das melhores ideias do fossil crop-dialog.tsx para o CropPanel atual (tela mantida) — zoom 6×, mãozinha, Ctrl+roda, "Detectar bordas" e setas do teclado; deletar o fossil; auditar e commitar.
+
+Work Log:
+- crop.ts: novo núcleo puro detectBoundsFromPixels (fundão estimado por MAIORIA de cantos ≥3 mutuamente próximos — tolera a peça ocupar um canto; máscara de conteúdo vs. cor de fundo com tolerância 30; supressão de ruído por contagem mínima por linha/coluna; salvaguardas: razão de conteúdo 0,4–97%, caixa ≥5% por eixo, caixa ≈folha → null) + detectArtworkBounds (wrapper com downsample ≤1000 px, folga de 1 px, coords no espaço do canvas de entrada — funciona sobre a arte girada).
+- crop-panel.tsx (tela visual intacta): stage medido por ResizeObserver (h-62vh), wrapper com width/height = fit×zoom e translate(pan); zoom 1–6× (botões flutuantes +/−, %, Ctrl+roda centrado no cursor, "Ajustar", modo mãozinha com pan clampado); dica "arraste fora do quadro para navegar" quando zoom>1; botão "Detectar bordas" (spinner + aviso âmbar quando sem confiança); setas do teclado movem o quadro 1 px (Shift=10 px) ignorando inputs; frame stopPropagation para conviver com o pan do stage; zoom/pan resetados em girar/resetar.
+- Fossil crop-dialog.tsx deletado (−704 linhas; importava funções que não existem mais no crop.ts — código morto e obsoleto).
+- Auditoria: tsc --noEmit = 0 erros em src/ (erros restantes são pré-existentes em examples/, skills/ e enhance-ai/route.ts, fora do escopo); eslint 0/0; build OK; teste unitário do detector scripts/test_detect_bounds.ts = 9/9 (peça central, fundo vazio, 100% conteúdo, poeira isolada, poeira+peça, fundo cinza, fundo não uniforme, peça sem folga, peça em canto — este último motivou o fix da maioria de cantos).
+- E2E Playwright (scripts/e2e_crop_zoom.py, produção :3001): 12/12 — etapa 2 monta, zoom 100→225% em 2 cliques, dica visível, "Ajustar" reseta, DETECÇÃO encolheu o quadro 400×300 → 294×214 px (peça real 290×210 + folga de 1 px×2 + ruído da foto), setas movem left 13,5%→12,25% (5 px exatos), mãozinha liga/desliga, "Aplicar recorte e continuar" segue ao tratamento com pipeline intacto. Screenshots pw-1..pw-5 em scripts/.
+- Falso positivo de depuração: page.evaluate("1+1", timeout=...) NÃO existe em Playwright Python (2º posicional é arg) — o "travamento" era bug do probe; o app nunca travou (comprovado por screenshot e content()). Daemon agent-browser também oscilou (page_wedged espúrio); Playwright direto é o caminho estável para E2E neste ambiente.
+
+Stage Summary:
+- Recorte agora tem zoom 6× + detecção automática de bordas + navegação por teclado, mantendo exatamente a tela aprovada; fossil removido; pipeline (tratamento/imposição/exportação) intocado e revalidado E2E. Nota: guias de terços ficaram de fora (eram opcionais no pacote) — podem ser adicionadas depois se quiser.

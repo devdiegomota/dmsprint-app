@@ -1,7 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Crop, RotateCcw, RotateCw, ArrowRight, Undo2, Scissors, RefreshCcw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowRight,
+  Crop,
+  Hand,
+  Loader2,
+  Maximize2,
+  RefreshCcw,
+  RotateCcw,
+  RotateCw,
+  ScanLine,
+  Scissors,
+  Undo2,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { fmtMm, type ProductSpec } from "@/lib/print/constants";
 import {
   cropCanvas,
+  detectArtworkBounds,
   effectiveDpi,
   isFullRect,
   rotateCanvas90,
@@ -18,6 +33,8 @@ import {
 } from "@/lib/print/crop";
 
 const MIN_CROP_PX = 32; // recorte mínimo (px da imagem) para não sumir com o quadro
+/** Zoom máximo em relação à imagem ajustada à tela (100% = arte inteira visível). */
+const MAX_ZOOM = 6;
 
 type DragMode = "move" | "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se";
 
@@ -61,8 +78,20 @@ export function CropPanel({
 
   const viewRef = useRef<HTMLCanvasElement>(null);
   const stackRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   /** Espelho do último retângulo — atualizado nos handlers (nunca no render). */
   const rectRef = useRef<CropRect>(rect);
+
+  // Zoom e navegação da imagem ampliada (transplantado do recorte antigo em diálogo).
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [hand, setHand] = useState(false);
+  const [panning, setPanning] = useState(false);
+  const [stage, setStage] = useState({ w: 0, h: 0 });
+  const panRef = useRef<{ startX: number; startY: number; basePan: { x: number; y: number } } | null>(null);
+  // Detecção automática de bordas da peça contra o fundo.
+  const [detecting, setDetecting] = useState(false);
+  const [detectHint, setDetectHint] = useState<string | null>(null);
 
   // Redesenha a imagem de trabalho no canvas exibido.
   useEffect(() => {
@@ -75,7 +104,21 @@ export function CropPanel({
     ctx.drawImage(work, 0, 0);
   }, [work]);
 
-  const notify = (r: CropRect, rot: number) => onSessionChange({ rotation: rot, rect: r });
+  const notify = useCallback(
+    (r: CropRect, rot: number) => onSessionChange({ rotation: rot, rect: r }),
+    [onSessionChange],
+  );
+
+  // Mede a área visível (stage) para calcular a escala "ajustada" e o zoom.
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const measure = () => setStage({ w: el.clientWidth, h: el.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // ---- Rotação: a imagem gira e o quadro de recorte acompanha o conteúdo ----
   const doRotate = (dir: "cw" | "ccw") => {
@@ -85,6 +128,10 @@ export function CropPanel({
     setRotation(nextRot);
     setRect(nextRect);
     notify(nextRect, nextRot);
+    // A vista reinicia: a imagem muda de dimensões ao girar.
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setDetectHint(null);
   };
 
   const doReset = () => {
@@ -93,6 +140,33 @@ export function CropPanel({
     rectRef.current = full;
     setRect(full);
     onSessionChange(null);
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setDetectHint(null);
+  };
+
+  // ---- Detecção automática da borda da peça contra o fundo ----
+  const handleDetect = () => {
+    if (detecting) return;
+    setDetecting(true);
+    setDetectHint(null);
+    // Pequeno atraso para o spinner pintar antes do cálculo síncrono.
+    setTimeout(() => {
+      try {
+        const found = detectArtworkBounds(work);
+        if (found) {
+          rectRef.current = found;
+          setRect(found);
+          notify(found, rotation);
+        } else {
+          setDetectHint(
+            "Não consegui identificar a borda com confiança (fundo não uniforme ou peça sem folga) — arraste as alças até a borda da peça.",
+          );
+        }
+      } finally {
+        setDetecting(false);
+      }
+    }, 40);
   };
 
   // ---- Interação: mover/redimensionar o quadro (listeners na janela = funciona
@@ -183,6 +257,146 @@ export function CropPanel({
     window.addEventListener("pointerup", endDrag);
   };
 
+  // ---- Zoom e navegação (transplantado do recorte antigo) ----
+  const fitScale =
+    stage.w > 8 && stage.h > 8
+      ? Math.min((stage.w - 24) / work.width, (stage.h - 24) / work.height)
+      : 0;
+  const dispW = fitScale > 0 ? work.width * fitScale * zoom : 0;
+  const dispH = fitScale > 0 ? work.height * fitScale * zoom : 0;
+  const atFit = zoom === 1 && pan.x === 0 && pan.y === 0;
+
+  const clampPan = useCallback(
+    (p: { x: number; y: number }, z: number) => {
+      // Limita o deslocamento para a imagem nunca sair totalmente da área visível.
+      const mx = Math.max(0, (work.width * fitScale * z - stage.w) / 2);
+      const my = Math.max(0, (work.height * fitScale * z - stage.h) / 2);
+      return { x: clamp(p.x, -mx, mx), y: clamp(p.y, -my, my) };
+    },
+    [work.width, work.height, fitScale, stage.w, stage.h],
+  );
+
+  const applyZoom = useCallback(
+    (target: number, anchor?: { cx: number; cy: number }) => {
+      const next = clamp(target, 1, MAX_ZOOM);
+      if (!Number.isFinite(next) || next === zoom || fitScale === 0) return;
+      if (anchor) {
+        // Zoom centrado no ponto ancora (cursor): o conteúdo sob o cursor fica parado.
+        const k = next / zoom;
+        setPan((p) =>
+          clampPan(
+            { x: anchor.cx - (anchor.cx - p.x) * k, y: anchor.cy - (anchor.cy - p.y) * k },
+            next,
+          ),
+        );
+      } else {
+        setPan((p) => clampPan(p, next));
+      }
+      setZoom(next);
+    },
+    [zoom, fitScale, clampPan],
+  );
+
+  const startPan = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    panRef.current = { startX: e.clientX, startY: e.clientY, basePan: pan };
+    setPanning(true);
+    const onMove = (ev: PointerEvent) => {
+      const d = panRef.current;
+      if (!d) return;
+      setPan(
+        clampPan(
+          { x: d.basePan.x + (ev.clientX - d.startX), y: d.basePan.y + (ev.clientY - d.startY) },
+          zoom,
+        ),
+      );
+    };
+    const onUp = () => {
+      panRef.current = null;
+      setPanning(false);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
+
+  // Clique na imagem: dentro do quadro (ou zoom 100%) move o quadro;
+  // fora do quadro com zoom, ou no modo mãozinha, navega pela imagem.
+  const onImagePointerDown = (e: React.PointerEvent) => {
+    const stack = stackRef.current;
+    if (!stack) return;
+    const bounds = stack.getBoundingClientRect();
+    const ix = bounds.width > 0 ? ((e.clientX - bounds.left) / bounds.width) * work.width : 0;
+    const iy = bounds.height > 0 ? ((e.clientY - bounds.top) / bounds.height) * work.height : 0;
+    const inside =
+      ix >= rect.x && ix <= rect.x + rect.w && iy >= rect.y && iy <= rect.y + rect.h;
+    if (hand || (zoom > 1 && !inside)) {
+      startPan(e);
+    } else {
+      beginDrag(e, "move");
+    }
+  };
+
+  // Ctrl + roda do mouse (ou pinça no trackpad): zoom centrado no cursor.
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el || fitScale === 0) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const r = el.getBoundingClientRect();
+      applyZoom(zoom * (e.deltaY < 0 ? 1.2 : 1 / 1.2), {
+        cx: e.clientX - (r.left + r.width / 2),
+        cy: e.clientY - (r.top + r.height / 2),
+      });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [zoom, fitScale, applyZoom]);
+
+  // Setas do teclado: movem o quadro em 1 px (Shift = 10 px) — precisão no zoom.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.isContentEditable)
+      )
+        return;
+      const step = e.shiftKey ? 10 : 1;
+      const d =
+        e.key === "ArrowLeft"
+          ? [-step, 0]
+          : e.key === "ArrowRight"
+            ? [step, 0]
+            : e.key === "ArrowUp"
+              ? [0, -step]
+              : e.key === "ArrowDown"
+                ? [0, step]
+                : null;
+      if (!d) return;
+      e.preventDefault();
+      const r = rectRef.current;
+      const next: CropRect = {
+        ...r,
+        x: clamp(r.x + d[0], 0, work.width - r.w),
+        y: clamp(r.y + d[1], 0, work.height - r.h),
+      };
+      rectRef.current = next;
+      setRect(next);
+      notify(next, rotation);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [work.width, work.height, rotation, notify]);
+
   // ---- Feedback ao vivo ----
   const rw = Math.max(1, Math.round(rect.w));
   const rh = Math.max(1, Math.round(rect.h));
@@ -250,24 +464,57 @@ export function CropPanel({
                 <Undo2 className="h-4 w-4" aria-hidden />
                 Resetar
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDetect}
+                disabled={detecting}
+                title="Detecta automaticamente a borda da peça contra um fundo uniforme"
+              >
+                {detecting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <ScanLine className="h-4 w-4" aria-hidden />
+                )}
+                {detecting ? "Detectando…" : "Detectar bordas"}
+              </Button>
             </div>
             <Badge variant="secondary">
               {orientation} · {work.width} × {work.height} px
             </Badge>
           </div>
 
-          {/* Área de edição — a imagem fica inteira na tela (fit-to-view) */}
+          {detectHint && (
+            <p className="rounded-lg border border-amber-600/40 bg-amber-600/10 p-3 text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+              {detectHint}
+            </p>
+          )}
+
+          {/* Área de edição — imagem inteira em 100% (fit-to-view), zoom até 6× para conferir a borda da peça */}
           <div className="rounded-xl border bg-muted/30 p-3">
-            <div className="flex justify-center">
+            <div
+              ref={stageRef}
+              className="relative flex h-[62vh] min-h-[280px] items-center justify-center overflow-hidden rounded-lg"
+            >
               <div
                 ref={stackRef}
-                className="relative select-none overflow-hidden rounded-lg"
-                style={{ touchAction: "none", lineHeight: 0 }}
+                className={cn(
+                  "relative shrink-0 select-none",
+                  panning ? "cursor-grabbing" : hand ? "cursor-grab" : "cursor-move",
+                )}
+                style={{
+                  width: dispW > 0 ? dispW : undefined,
+                  height: dispH > 0 ? dispH : undefined,
+                  transform: `translate(${pan.x}px, ${pan.y}px)`,
+                  touchAction: "none",
+                  lineHeight: 0,
+                }}
+                onPointerDown={onImagePointerDown}
               >
                 <canvas
                   ref={viewRef}
                   aria-label="Imagem com quadro de recorte editável"
-                  className="block h-auto max-h-[62vh] w-auto max-w-full"
+                  className="block h-full w-full"
                 />
                 {/* Escurece o que fica fora do quadro (box-shadow gigante recortado pelo overflow-hidden) */}
                 <div
@@ -275,7 +522,12 @@ export function CropPanel({
                   aria-label="Quadro de recorte — arraste para mover, use as alças para redimensionar"
                   className="absolute cursor-move border-2 border-amber-500 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]"
                   style={pct}
-                  onPointerDown={(e) => beginDrag(e, "move")}
+                  onPointerDown={(e) => {
+                    // Impede que o pointerdown borbulhe para o stage (que iniciaria
+                    // um pan da imagem em vez de mover o quadro).
+                    e.stopPropagation();
+                    beginDrag(e, "move");
+                  }}
                 >
                   {HANDLES.map((h) => (
                     <div
@@ -295,12 +547,76 @@ export function CropPanel({
                   ))}
                 </div>
               </div>
+
+              {/* Controles de zoom flutuantes */}
+              <div className="absolute bottom-3 right-3 z-10 flex items-center gap-0.5 rounded-full border bg-background/95 p-1 shadow-sm backdrop-blur">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  aria-label="Reduzir o zoom"
+                  onClick={() => applyZoom(zoom / 1.5)}
+                  disabled={zoom <= 1}
+                >
+                  <ZoomOut className="h-4 w-4" aria-hidden />
+                </Button>
+                <span className="w-11 text-center font-mono text-xs tabular-nums" aria-live="polite">
+                  {Math.round(zoom * 100)}%
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  aria-label="Ampliar o zoom"
+                  onClick={() => applyZoom(zoom * 1.5)}
+                  disabled={zoom >= MAX_ZOOM}
+                >
+                  <ZoomIn className="h-4 w-4" aria-hidden />
+                </Button>
+                <div className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  aria-label="Ajustar a imagem inteira na tela"
+                  title="Ajustar (ver a arte inteira)"
+                  onClick={() => {
+                    setZoom(1);
+                    setPan({ x: 0, y: 0 });
+                  }}
+                  disabled={atFit}
+                >
+                  <Maximize2 className="h-4 w-4" aria-hidden />
+                </Button>
+                <Button
+                  type="button"
+                  variant={hand ? "default" : "ghost"}
+                  size="icon"
+                  className={cn("h-7 w-7", hand && "bg-amber-600 text-white hover:bg-amber-700")}
+                  aria-label="Modo navegar pela imagem"
+                  aria-pressed={hand}
+                  title="Navegar pela imagem ampliada"
+                  onClick={() => setHand((v) => !v)}
+                >
+                  <Hand className="h-4 w-4" aria-hidden />
+                </Button>
+              </div>
+
+              {zoom > 1 && !hand && (
+                <p className="absolute bottom-3 left-3 z-10 rounded-full bg-background/85 px-3 py-1 text-[11px] leading-none text-muted-foreground shadow-sm">
+                  Arraste fora do quadro para navegar pela imagem
+                </p>
+              )}
             </div>
           </div>
 
           <p className="text-center text-xs text-muted-foreground">
-            Dica: para girar a arte inteira (cartão em pé → deitado, ou panfleto deitado → em pé), use os botões de 90°
-            — o recorte acompanha a rotação.
+            Dica: use o zoom (Ctrl + roda do mouse ou os botões) para conferir a borda da peça de perto. As setas do
+            teclado movem o quadro em 1 px (Shift + seta = 10 px). Para girar a arte inteira (cartão em pé → deitado, ou
+            panfleto deitado → em pé), use os botões de 90° — o recorte acompanha a rotação.
           </p>
         </CardContent>
       </Card>
