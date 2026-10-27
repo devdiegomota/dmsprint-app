@@ -116,3 +116,24 @@ Work Log:
 
 Stage Summary:
 - Fim do ciclo teste-e-erro: o usuário agora ajusta a reserva da base (0–5 mm) na própria tela de exportação, com feedback instantâneo nas instruções de corte; default 3,0 mm já cobre a mordida de ~3 mm medida na impressora dele. Qualquer impressora futura é caso de slider, não de código.
+
+---
+Task ID: 8
+Agent: main (Z.ai)
+Task: Linha de corte fina (fio cinza-claro quase invisível) na borda de cada peça, para artes com fundo branco/claro em que o operador não enxerga onde cortar na guilhotina (cartões saíam com tamanhos aleatórios).
+
+Work Log:
+- imposition.ts: novas constantes exportadas CUT_LINE_WIDTH_PX = 2 (≈0,17 mm @ 300 DPI) e CUT_LINE_COLOR = "#c8c8c8"; ImpositionOptions ganhou cutLine?: boolean; renderImposedSheet desenha strokeRect alinhado a pixels inteiros 100% DENTRO de cada peça (tamanho de corte continua exato) — em peças coladas os traços vizinhos formam fio duplo de 4 px sobre a linha de vinco; describeLayout menciona a linha quando ativa.
+- page.tsx: estado cutLine (default false, persiste entre artes como bottomGuardMm/fitMode); renderImposedSheet recebe { bottomGuardMm, cutLine } (dep adicionada); props cortadas para PreviewPanel e ExportPanel.
+- preview-panel.tsx: novo bloco "Linha de corte fina" com Switch abaixo da folha + NOVA AMPLIAÇÃO 1:1 (canvas 400×250 do canto da primeira peça via useEffect/drawImage) porque o fio de 0,17 mm é invisível na folha reduzida — visível só quando o switch está ON.
+- export-panel.tsx: bloco "Linha de corte para fundos claros" (Switch, todos os produtos) + item dinâmico no checklist: variante glued ("corte exatamente sobre a linha — cartão sai com 95 × 56 mm; linhas também marcam o limite do bloco para aparar bordas externas") e variante two-cut ("siga no meio da faixa branca — linhas marcam a borda exata da arte").
+- E2E agent-browser com nova arte branca upload/test-card-branco.png (scripts/make_test_card_white.py, conteúdo no miolo, cantos brancos):
+  - Switch OFF: 0 px cinza nas janelas sondadas (baseline limpa).
+  - Switch ON (cartão): fio #c8c8c8 pixel-exato em x{118,119}, x{1238..1241} (fio duplo), y{102,103}, y{761..764}, base y{3405,3406}; interior da arte e margens externas 255 branco; ampliação 1:1 mostra o fio (px 30-31 = 200,200,200).
+  - Sincronia: switch ON/OFF no export reflete no preview (estado único no page.tsx); OFF volta a 0 px cinza.
+  - Panfleto two-cut: fio presente na borda direita da peça 1 (x 1197-1198) e topo (y 7-8) — layout não colado também suportado; checklist com texto da variante two-cut correto.
+  - PDF exportado validado (scripts/verify_cutline_pdf.py): página 210,00 × 297,00 mm; render 300 DPI; fio presente nas 4 bordas das 10 peças (janela ±3 px, ≥2 px cinza cada), interiores/margens brancos, amostra (202,202,202) ≈ alvo.
+  - Console sem erros; lint limpo. Screenshots scripts/shot-16-cutline-preview.png, shot-17-cutline-export.png.
+
+Stage Summary:
+- Novo recurso "Linha de corte fina": fio cinza-claro de ≈0,17 mm na borda de cada peça, ativável no preview e na exportação (estado compartilhado), com ampliação 1:1 para conferência. Resolve o corte aleatório de cartões de fundo branco na guilhotina; o tamanho de corte permanece exato (o fio é impresso dentro da medida) e some quase totalmente no produto final.

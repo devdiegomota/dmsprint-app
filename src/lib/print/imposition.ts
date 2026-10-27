@@ -12,6 +12,9 @@
  *    (2) seguro mínimo de 0,5 mm no topo, (3) o resto vai para a folga da linha de
  *    corte (até 3,5 mm por peça). A guarda é ajustável na UI porque cada impressora
  *    tem uma margem não imprimível diferente na base.
+ *  - Linha de corte (opcional): fio cinza-claro desenhado 100% DENTRO da borda de
+ *    cada peça — guia a guilhotina em artes com fundo branco/claro, em que o limite
+ *    da peça é invisível contra o papel. O tamanho de corte continua exato.
  *
  * Todas as posições são inteiras (px) para evitar interpolação sub-pixel e manter
  * os vincos/cortes pixel-perfect na impressão.
@@ -73,6 +76,20 @@ export function computedGapPx(pagePx: number, cellPx: number, n: number): number
 export const CUT_CLEARANCE_PX = mmToPx(3.5); // 41 px ≈ 3,5 mm
 
 /**
+ * Linha de corte fina ("hairline") desenhada na borda de cada peça, para artes com
+ * fundo branco/claro — em pilhas de cartões assim o operador não enxerga onde a
+ * guilhotina deve passar e os cortes saem com tamanhos aleatórios.
+ *  - 2 px @ 300 DPI ≈ 0,17 mm: fio fino que imprime de forma confiável (1 px some
+ *    em muitas impressoras).
+ *  - Cinza claro (#c8c8c8): visível o bastante para guiar o corte na folha, quase
+ *    invisível no produto final.
+ * O traço é alinhado a pixels inteiros e desenhado integralmente DENTRO da peça,
+ * então o tamanho de corte permanece exato (a lâmina passa raspando a linha).
+ */
+export const CUT_LINE_WIDTH_PX = 2; // ≈ 0,17 mm @ 300 DPI
+export const CUT_LINE_COLOR = "#c8c8c8";
+
+/**
  * Guarda de base (modo 2 cortes): branco extra na BASE da folha para absorver a margem
  * não imprimível da impressora — maior ali mesmo no modo "sem margens". Testes em
  * impressora real (Epson/HP domésticas) mostraram de ~1 a ~3 mm de perda na base; o
@@ -117,6 +134,8 @@ function twoCutRows(pagePx: number, cellPx: number, guardPx: number): number[] {
 export interface ImpositionOptions {
   /** Branco extra na base da folha, em mm (padrão: {@link DEFAULT_BOTTOM_GUARD_MM}). */
   bottomGuardMm?: number;
+  /** Desenha a linha de corte fina ({@link CUT_LINE_COLOR}) na borda de cada peça. */
+  cutLine?: boolean;
 }
 
 export function computeLayout(spec: ProductSpec, options: ImpositionOptions = {}): ImpositionLayout {
@@ -191,6 +210,26 @@ export function renderImposedSheet(
       );
     }
   }
+
+  // Linha de corte fina na borda de cada peça (opcional — artes de fundo claro).
+  // Traço em pixels inteiros, 100% dentro da peça: o tamanho de corte continua
+  // exato (a lâmina passa raspando a linha). Em peças coladas, os traços vizinhos
+  // se encontram formando um fio duplo de 4 px exatamente sobre a linha de vinco.
+  if (options.cutLine) {
+    const lw = CUT_LINE_WIDTH_PX;
+    ctx.strokeStyle = CUT_LINE_COLOR;
+    ctx.lineWidth = lw;
+    for (let r = 0; r < layout.rows; r++) {
+      for (let c = 0; c < layout.cols; c++) {
+        ctx.strokeRect(
+          layout.colX[c] + lw / 2,
+          layout.rowY[r] + lw / 2,
+          layout.cellWidthPx - lw,
+          layout.cellHeightPx - lw,
+        );
+      }
+    }
+  }
   return { canvas, layout };
 }
 
@@ -215,6 +254,11 @@ export function describeLayout(spec: ProductSpec, options: ImpositionOptions = {
   } else {
     lines.push(
       `Borda branca por peça: ≈${pxToMm(layout.gapXPx).toFixed(1)} mm (lat.) × ≈${pxToMm(layout.gapYPx).toFixed(1)} mm (vert.) — máximo possível no A4`,
+    );
+  }
+  if (options.cutLine) {
+    lines.push(
+      `Linha de corte fina ativada: fio cinza-claro de ≈${pxToMm(CUT_LINE_WIDTH_PX).toFixed(2)} mm na borda de cada peça (guia para artes de fundo branco/claro).`,
     );
   }
   return lines;

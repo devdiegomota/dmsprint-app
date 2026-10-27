@@ -88,6 +88,9 @@ export default function Home() {
   /** Guarda de base (mm) para a margem não imprimível da impressora — propriedade da
    *  impressora, NÃO é resetada junto com a arte. */
   const [bottomGuardMm, setBottomGuardMm] = useState(DEFAULT_BOTTOM_GUARD_MM);
+  /** Linha de corte fina (fio cinza-claro na borda de cada peça) — para artes com
+   *  fundo branco/claro, em que o operador não enxerga onde cortar na guilhotina. */
+  const [cutLine, setCutLine] = useState(false);
 
   const enhanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Canvas decodificado no tamanho natural — mantido para re-enquadrar sem re-decodificar. */
@@ -177,13 +180,13 @@ export default function Home() {
     };
   }, [preparedCanvas, analysis, settings]);
 
-  // ---- Etapa 2 → 3: monta a folha imposta sempre que a arte tratada ou a guarda muda ----
+  // ---- Etapa 2 → 3: monta a folha imposta sempre que a arte tratada, a guarda ou a linha de corte mudam ----
   useEffect(() => {
     if (!enhancedCanvas || !spec) return;
-    const { canvas } = renderImposedSheet(enhancedCanvas, spec, { bottomGuardMm });
+    const { canvas } = renderImposedSheet(enhancedCanvas, spec, { bottomGuardMm, cutLine });
     setSheetCanvas(canvas);
     setMaxReached((m) => Math.max(m, 4));
-  }, [enhancedCanvas, spec, bottomGuardMm]);
+  }, [enhancedCanvas, spec, bottomGuardMm, cutLine]);
 
   const layout: ImpositionLayout | null = useMemo(
     () => (spec ? computeLayout(spec, { bottomGuardMm }) : null),
@@ -253,6 +256,8 @@ export default function Home() {
               spec={spec}
               layout={layout}
               sheetCanvas={sheetCanvas}
+              cutLine={cutLine}
+              onCutLineChange={setCutLine}
               onContinue={() => goTo(4)}
             />
           )}
@@ -264,6 +269,8 @@ export default function Home() {
               units={spec.unitsPerSheet}
               bottomGuardMm={bottomGuardMm}
               onBottomGuardChange={setBottomGuardMm}
+              cutLine={cutLine}
+              onCutLineChange={setCutLine}
             />
           )}
         </section>

@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { FileDown, Loader2, CheckCircle2, Printer } from "lucide-react";
+import { FileDown, Loader2, CheckCircle2, Printer, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Switch } from "@/components/ui/switch";
 import { A4, fmtMm, pxToMm, type ProductSpec } from "@/lib/print/constants";
 import { computeLayout, MAX_BOTTOM_GUARD_MM } from "@/lib/print/imposition";
 import { fmtBytes, exportSheetPdf, type PdfImageFormat } from "@/lib/print/pdf";
@@ -19,6 +20,8 @@ export function ExportPanel({
   units,
   bottomGuardMm,
   onBottomGuardChange,
+  cutLine,
+  onCutLineChange,
 }: {
   spec: ProductSpec;
   sheetCanvas: HTMLCanvasElement | null;
@@ -26,6 +29,9 @@ export function ExportPanel({
   /** Guarda de base atual (mm) — controlada no page.tsx, compartilhada com o preview. */
   bottomGuardMm: number;
   onBottomGuardChange: (mm: number) => void;
+  /** Linha de corte fina — controlada no page.tsx, compartilhada com o preview. */
+  cutLine: boolean;
+  onCutLineChange: (on: boolean) => void;
 }) {
   const { toast } = useToast();
   const [format, setFormat] = useState<PdfImageFormat>("jpeg");
@@ -168,6 +174,18 @@ export function ExportPanel({
                 <Printer className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
                 Cada folha contém <strong className="text-foreground">{units} unidades</strong> da arte (frente única).
               </li>
+              {cutLine && (
+                <li className="flex gap-2">
+                  <Scissors className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+                  <span>
+                    <strong className="text-foreground">Linha de corte fina</strong> impressa na borda de cada peça (fio
+                    cinza-claro de ≈0,17 mm):{" "}
+                    {spec.gapMode === "glued"
+                      ? `corte exatamente sobre a linha — cada cartão sai com ${fmtMm(spec.widthMm)} × ${fmtMm(spec.heightMm)} mm e as linhas também marcam o limite do bloco para aparar as bordas externas.`
+                      : "siga cortando no meio da faixa branca como de costume — as linhas cinza marcam a borda exata da arte de cada peça."}
+                  </span>
+                </li>
+              )}
             </ul>
 
             {spec.gapMode === "two-cut" && (
@@ -199,6 +217,29 @@ export function ExportPanel({
                 </p>
               </div>
             )}
+
+            <div className="mt-4 rounded-lg border bg-muted/40 p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <Label htmlFor="cut-line" className="text-sm font-semibold">
+                    Linha de corte para fundos claros
+                  </Label>
+                  <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                    Desenha um fio cinza-claro quase invisível (≈0,17 mm) exatamente na borda de cada{" "}
+                    {spec.gapMode === "glued" ? "cartão" : "peça"} — resolve o corte de artes com fundo branco/claro, em
+                    que não se enxerga onde a guilhotina deve passar. O fio é impresso dentro da medida: o tamanho de
+                    corte continua exato.
+                  </p>
+                </div>
+                <Switch
+                  id="cut-line"
+                  checked={cutLine}
+                  onCheckedChange={onCutLineChange}
+                  className="mt-0.5"
+                  aria-label="Ativar linha de corte para fundos claros"
+                />
+              </div>
+            </div>
           </CardContent>
         </Card>
 
