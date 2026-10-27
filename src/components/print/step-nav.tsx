@@ -1,13 +1,14 @@
 "use client";
 
-import { Check, Upload, Wand2, LayoutGrid, FileDown } from "lucide-react";
+import { Check, Upload, Crop, Wand2, LayoutGrid, FileDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const STEPS = [
   { id: 1, label: "Upload & Produto", icon: Upload },
-  { id: 2, label: "Tratamento", icon: Wand2 },
-  { id: 3, label: "Pré-visualização", icon: LayoutGrid },
-  { id: 4, label: "Exportar PDF", icon: FileDown },
+  { id: 2, label: "Recorte & Rotação", icon: Crop },
+  { id: 3, label: "Tratamento", icon: Wand2 },
+  { id: 4, label: "Pré-visualização", icon: LayoutGrid },
+  { id: 5, label: "Exportar PDF", icon: FileDown },
 ] as const;
 
 export function StepNav({
@@ -21,7 +22,7 @@ export function StepNav({
 }) {
   return (
     <nav aria-label="Etapas do fluxo" className="w-full">
-      <ol className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         {STEPS.map((step) => {
           const Icon = step.icon;
           const done = step.id < current;

@@ -1,0 +1,751 @@
+     1→     1→/**
+     2→     2→ * Recorte de arte — extração do cartão/panfleto a partir de uma foto com fundo.
+     3→     3→ *
+     4→     4→ * Caso de uso: o cliente envia a arte dentro de um "ambiente" (mockup, foto na
+     5→     5→ * mesa, moldura decorativa) e a gráfica precisa recortar EXATAMENTE na borda
+     6→     6→ * da peça antes de imprimir. Duas ferramentas complementares:
+     7→     7→ *
+     8→     8→ *  1. DETECÇÃO AUTOMÁTICA (detectArtworkBounds) — localiza o retângulo da peça:
+     9→     9→ *       a) LINHAS DE SOBEL EM COR (soma dos gradientes R/G/B — captura bordas
+    10→    10→ *          com luminância parecida mas cor diferente, ex. laranja vs madeira):
+    11→    11→ *          gera os 3 melhores pares de linhas horizontais e verticais.
+    12→    12→ *       b) PRINCÍPIO DA BORDA EXTERNA: uma borda VERDADEIRA da peça tem fundo
+    13→    13→ *          de um lado e conteúdo do outro; linhas internas (faixas, molduras
+    14→    14→ *          de texto) têm conteúdo dos DOIS lados. Cada retângulo candidato é
+    15→    15→ *          pontuado primeiro pelo nº de lados com "fundo do lado de fora"
+    16→    16→ *          (faixas de amostragem logo fora de cada borda) e depois pela força
+    17→    17→ *          das 4 linhas — linhas internas perdem.
+    18→    18→ *       c) DIFERENÇA DE FUNDO: varredura de dentro-para-fora contra a cor
+    19→    19→ *          mediana do anel externo da foto (candidato extra; exige fundo
+    20→    20→ *          confirmado fora de TODOS os lados).
+    21→    21→ *       Os candidatos são refinados (máx. local do perfil), deduplicados por
+    22→    22→ *       IoU e o vencedor é reescalado para a resolução da fonte. Falha
+    23→    23→ *       (retorna null) quando não há contraste — aí o usuário recorta na mão.
+    24→    24→ *
+    25→    25→ *  2. RECORTE MANUAL (CropRect + helpers geométricos) — retângulo arrastável
+    26→    26→ *     com trava de proporção, implementado no crop-dialog.tsx.
+    27→    27→ *
+    28→    28→ * O recorte aplicado substitui a arte-fonte; todo o pipeline posterior
+    29→    29→ * (análise → restauração IA → tratamento → imposição → PDF) funciona sem
+    30→    30→ * alterações por cima do resultado recortado.
+    31→    31→ */
+    32→    32→
+    33→    33→import { drawScaled, makeCanvas } from "./analysis";
+    34→    34→import { fmtMm, type ProductSpec } from "./constants";
+    35→    35→
+    36→    36→/** Retângulo de recorte em coordenadas de PIXEL da imagem-fonte. */
+    37→    37→export interface CropRect {
+    38→    38→  x: number;
+    39→    39→  y: number;
+    40→    40→  width: number;
+    41→    41→  height: number;
+    42→    42→}
+    43→    43→
+    44→    44→/** Tamanho mínimo do recorte, em px da fonte (evita recortes degenerados). */
+    45→    45→export const CROP_MIN_PX = 16;
+    46→    46→
+    47→    47→/** Clamp genérico. */
+    48→    48→function clamp(v: number, lo: number, hi: number): number {
+    49→    49→  return Math.max(lo, Math.min(hi, v));
+    50→    50→}
+    51→    51→
+    52→    52→/** Normaliza um retângulo para dentro da imagem, com tamanho mínimo. */
+    53→    53→export function clampRect(rect: CropRect, W: number, H: number): CropRect {
+    54→    54→  const width = clamp(Math.round(rect.width), CROP_MIN_PX, W);
+    55→    55→  const height = clamp(Math.round(rect.height), CROP_MIN_PX, H);
+    56→    56→  return {
+    57→    57→    x: clamp(Math.round(rect.x), 0, W - width),
+    58→    58→    y: clamp(Math.round(rect.y), 0, H - height),
+    59→    59→    width,
+    60→    60→    height,
+    61→    61→  };
+    62→    62→}
+    63→    63→
+    64→    64→/**
+    65→    65→ * Maior retângulo centralizado com a proporção dada (largura/altura).
+    66→    66→ * Usado ao trocar a trava de proporção no diálogo de recorte.
+    67→    67→ */
+    68→    68→export function fitRectWithRatio(W: number, H: number, ratio: number): CropRect {
+    69→    69→  let width = W;
+    70→    70→  let height = width / ratio;
+    71→    71→  if (height > H) {
+    72→    72→    height = H;
+    73→    73→    width = height * ratio;
+    74→    74→  }
+    75→    75→  return clampRect(
+    76→    76→    {
+    77→    77→      x: (W - width) / 2,
+    78→    78→      y: (H - height) / 2,
+    79→    79→      width,
+    80→    80→      height,
+    81→    81→    },
+    82→    82→    W,
+    83→    83→    H,
+    84→    84→  );
+    85→    85→}
+    86→    86→
+    87→    87→// ---------------------------------------------------------------------------
+    88→    88→// Detecção automática da borda da peça
+    89→    89→// ---------------------------------------------------------------------------
+    90→    90→
+    91→    91→const WORK_MAX = 256; // resolução de trabalho da detecção
+    92→    92→
+    93→    93→interface Profiles {
+    94→    94→  w: number;
+    95→    95→  h: number;
+    96→    96→  /** Score de linha horizontal por linha y (Sobel em cor, janela central). */
+    97→    97→  rowLine: Float32Array;
+    98→    98→  /** Score de linha vertical por coluna x. */
+    99→    99→  colLine: Float32Array;
+   100→   100→  /** Sobel acumulado (max |gx|,|gy|) por pixel — para barrar o crescimento. */
+   101→   101→  edge: Float32Array;
+   102→   102→  /** Máscara de fundo: 1 = alcançável a partir da moldura (região crescente). */
+   103→   103→  bgMask: Uint8Array;
+   104→   104→  /** Fração da imagem classificada como fundo (0..1). */
+   105→   105→  bgFraction: number;
+   106→   106→  /** Nível de ruído do fundo (p25 das diferenças vs. cor de fundo). */
+   107→   107→  noise: number;
+   108→   108→  /** Mediana das diferenças (fallback de diagnóstico). */
+   109→   109→  medDiff: number;
+   110→   110→}
+   111→   111→
+   112→   112→/** Extrai perfis de gradiente em cor, máscara de fundo e ruído. */
+   113→   113→function buildProfiles(src: HTMLCanvasElement): Profiles {
+   114→   114→  const scale = Math.min(1, WORK_MAX / Math.max(src.width, src.height));
+   115→   115→  const w = Math.max(24, Math.round(src.width * scale));
+   116→   116→  const h = Math.max(24, Math.round(src.height * scale));
+   117→   117→  const small = drawScaled(src, w, h);
+   118→   118→  const data = small.getContext("2d")!.getImageData(0, 0, w, h).data;
+   119→   119→
+   120→   120→  const n = w * h;
+   121→   121→  // Sobel acumulado nos 3 canais: borda com cor diferente aparece mesmo com
+   122→   122→  // luminância igual (laranja vs madeira, verde vs azul...).
+   123→   123→  const edge = new Float32Array(n);
+   124→   124→  const ch = [0, 1, 2].map(() => new Float32Array(n));
+   125→   125→  for (let i = 0, p = 0; i < n; i++, p += 4) {
+   126→   126→    ch[0][i] = data[p];
+   127→   127→    ch[1][i] = data[p + 1];
+   128→   128→    ch[2][i] = data[p + 2];
+   129→   129→  }
+   130→   130→  for (let y = 1; y < h - 1; y++) {
+   131→   131→    for (let x = 1; x < w - 1; x++) {
+   132→   132→      const i = y * w + x;
+   133→   133→      let sx = 0;
+   134→   134→      let sy = 0;
+   135→   135→      for (const c of ch) {
+   136→   136→        const tl = c[i - w - 1], tc = c[i - w], tr = c[i - w + 1];
+   137→   137→        const ml = c[i - 1], mr = c[i + 1];
+   138→   138→        const bl = c[i + w - 1], bc = c[i + w], br = c[i + w + 1];
+   139→   139→        sx += Math.abs(tr + 2 * mr + br - (tl + 2 * ml + bl));
+   140→   140→        sy += Math.abs(bl + 2 * bc + br - (tl + 2 * tc + tr));
+   141→   141→      }
+   142→   142→      edge[i] = Math.max(sx, sy);
+   143→   143→    }
+   144→   144→  }
+   145→   145→
+   146→   146→  // Janela raised-cosine no eixo perpendicular: bordas da PEÇA atravessam o
+   147→   147→  // centro da foto; bordas da cena (vinheta, moldura da foto) ficam nas pontas.
+   148→   148→  const wx = new Float32Array(w);
+   149→   149→  for (let x = 0; x < w; x++) wx[x] = 0.35 + 0.65 * Math.sin((Math.PI * (x + 0.5)) / w);
+   150→   150→  const wy = new Float32Array(h);
+   151→   151→  for (let y = 0; y < h; y++) wy[y] = 0.35 + 0.65 * Math.sin((Math.PI * (y + 0.5)) / h);
+   152→   152→
+   153→   153→  const rowLine = new Float32Array(h);
+   154→   154→  for (let y = 0; y < h; y++) {
+   155→   155→    let acc = 0;
+   156→   156→    for (let x = 0; x < w; x++) acc += edge[y * w + x] * wx[x];
+   157→   157→    rowLine[y] = acc / w;
+   158→   158→  }
+   159→   159→  const colLine = new Float32Array(w);
+   160→   160→  for (let x = 0; x < w; x++) {
+   161→   161→    let acc = 0;
+   162→   162→    for (let y = 0; y < h; y++) acc += edge[y * w + x] * wy[y];
+   163→   163→    colLine[x] = acc / h;
+   164→   164→  }
+   165→   165→  // Nota: edge = max(|gx|,|gy|) por pixel — rowLine e colLine usam o mesmo
+   166→   166→  // campo com janelas diferentes, suficiente para ranquear linhas.
+   167→   167→
+   168→   168→  // Fundo = cor mediana do anel externo (2 px) da foto, com outliers de
+   169→   169→  // luminância (vinheta escura nos cantos, objetos claros) descartados.
+   170→   170→  const ring: number[][] = [[], [], []];
+   171→   171→  const collect = (x: number, y: number) => {
+   172→   172→    const p = (y * w + x) * 4;
+   173→   173→    ring[0].push(data[p]);
+   174→   174→    ring[1].push(data[p + 1]);
+   175→   175→    ring[2].push(data[p + 2]);
+   176→   176→  };
+   177→   177→  for (let x = 0; x < w; x++) {
+   178→   178→    for (let k = 0; k < 2; k++) {
+   179→   179→      collect(x, k);
+   180→   180→      collect(x, h - 1 - k);
+   181→   181→    }
+   182→   182→  }
+   183→   183→  for (let y = 2; y < h - 2; y++) {
+   184→   184→    for (let k = 0; k < 2; k++) {
+   185→   185→      collect(k, y);
+   186→   186→      collect(w - 1 - k, y);
+   187→   187→    }
+   188→   188→  }
+   189→   189→  const median = (arr: number[]) => {
+   190→   190→    const s = [...arr].sort((a, b) => a - b);
+   191→   191→    return s[Math.floor(s.length / 2)] ?? 128;
+   192→   192→  };
+   193→   193→  const lum = (r: number, g: number, b: number) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+   194→   194→  const ringLum = ring[0].map((r, i) => lum(r, ring[1][i], ring[2][i]));
+   195→   195→  const lumSorted = [...ringLum].sort((a, b) => a - b);
+   196→   196→  const loLum = lumSorted[Math.floor(lumSorted.length * 0.15)] ?? 0;
+   197→   197→  const hiLum = lumSorted[Math.floor(lumSorted.length * 0.85)] ?? 255;
+   198→   198→  const kept: number[][] = [[], [], []];
+   199→   199→  for (let i = 0; i < ringLum.length; i++) {
+   200→   200→    if (ringLum[i] < loLum || ringLum[i] > hiLum) continue;
+   201→   201→    kept[0].push(ring[0][i]);
+   202→   202→    kept[1].push(ring[1][i]);
+   203→   203→    kept[2].push(ring[2][i]);
+   204→   204→  }
+   205→   205→  const bg = [median(kept[0]), median(kept[1]), median(kept[2])];
+   206→   206→
+   207→   207→  const colorDist = (x: number, y: number) => {
+   208→   208→    const p = (y * w + x) * 4;
+   209→   209→    const dr = data[p] - bg[0];
+   210→   210→    const dg = data[p + 1] - bg[1];
+   211→   211→    const db = data[p + 2] - bg[2];
+   212→   212→    return Math.sqrt(dr * dr + dg * dg + db * db) / (255 * Math.sqrt(3));
+   213→   213→  };
+   214→   214→
+   215→   215→  // Nível de ruído = p25 das diferenças linha/coluna (o fundo é minoria quando
+   216→   216→  // a peça é grande — a mediana cairia dentro do conteúdo).
+   217→   217→  const rowDiff = new Float32Array(h);
+   218→   218→  const colDiff = new Float32Array(w);
+   219→   219→  for (let y = 0; y < h; y++) {
+   220→   220→    let acc = 0;
+   221→   221→    for (let x = 0; x < w; x++) acc += colorDist(x, y);
+   222→   222→    rowDiff[y] = acc / w;
+   223→   223→  }
+   224→   224→  for (let x = 0; x < w; x++) {
+   225→   225→    let acc = 0;
+   226→   226→    for (let y = 0; y < h; y++) acc += colorDist(x, y);
+   227→   227→    colDiff[x] = acc / h;
+   228→   228→  }
+   229→   229→  const pooled = [...rowDiff, ...colDiff].sort((a, b) => a - b);
+   230→   230→  const medDiff = pooled[Math.floor(pooled.length / 2)] ?? 0;
+   231→   231→  const noise = pooled[Math.floor(pooled.length * 0.25)] ?? 0;
+   232→   232→  // ---- Máscara de fundo por crescimento de região a partir da moldura ----
+   233→   233→  // O fundo é o que se conecta à borda da foto atravessando só degraus suaves
+   234→   234→  // (vinheta, sombra) — o crescimento para em linhas fortes (borda da peça).
+   235→   235→  // Linhas fortes barram o crescimento. A referência é a TEXTURA do fundo
+   236→   236→  // (p25 dos gradientes): a borda de uma peça é muito mais forte que o ruído
+   237→   237→  // do fundo — o máximo global falha quando há conteúdo interno bem forte.
+   238→   238→  const edgeSorted = [...edge].sort((a, b) => a - b);
+   239→   239→  const edgeNoise = edgeSorted[Math.floor(edgeSorted.length * 0.25)] ?? 0;
+   240→   240→  const edgeStop = Math.max(6 * edgeNoise, 150);
+   241→   241→  const stepTol = Math.max(0.06, 1.1 * noise);    // degrau máximo entre vizinhos
+   242→   242→  const seedTol = Math.max(0.18, 2.2 * noise);    // distância da semente (moldura)
+   243→   243→
+   244→   244→  const bgMask = new Uint8Array(n);
+   245→   245→  const queue = new Int32Array(n);
+   246→   246→  let qHead = 0;
+   247→   247→  let qTail = 0;
+   248→   248→  const trySeed = (x: number, y: number) => {
+   249→   249→    const i = y * w + x;
+   250→   250→    if (bgMask[i] || edge[i] > edgeStop) return;
+   251→   251→    if (colorDist(x, y) > seedTol) return;
+   252→   252→    bgMask[i] = 1;
+   253→   253→    queue[qTail++] = i;
+   254→   254→  };
+   255→   255→  for (let x = 0; x < w; x++) {
+   256→   256→    trySeed(x, 0);
+   257→   257→    trySeed(x, 1);
+   258→   258→    trySeed(x, h - 1);
+   259→   259→    trySeed(x, h - 2);
+   260→   260→  }
+   261→   261→  for (let y = 2; y < h - 2; y++) {
+   262→   262→    trySeed(0, y);
+   263→   263→    trySeed(1, y);
+   264→   264→    trySeed(w - 1, y);
+   265→   265→    trySeed(w - 2, y);
+   266→   266→  }
+   267→   267→  const stepDist = (i: number, j: number) => {
+   268→   268→    const pi = i * 4;
+   269→   269→    const pj = j * 4;
+   270→   270→    const dr = data[pi] - data[pj];
+   271→   271→    const dg = data[pi + 1] - data[pj + 1];
+   272→   272→    const db = data[pi + 2] - data[pj + 2];
+   273→   273→    return Math.sqrt(dr * dr + dg * dg + db * db) / (255 * Math.sqrt(3));
+   274→   274→  };
+   275→   275→  while (qHead < qTail) {
+   276→   276→    const i = queue[qHead++];
+   277→   277→    const x = i % w;
+   278→   278→    const y = (i / w) | 0;
+   279→   279→    if (x > 0) {
+   280→   280→      const j = i - 1;
+   281→   281→      if (!bgMask[j] && edge[j] <= edgeStop && stepDist(i, j) < stepTol) {
+   282→   282→        bgMask[j] = 1;
+   283→   283→        queue[qTail++] = j;
+   284→   284→      }
+   285→   285→    }
+   286→   286→    if (x < w - 1) {
+   287→   287→      const j = i + 1;
+   288→   288→      if (!bgMask[j] && edge[j] <= edgeStop && stepDist(i, j) < stepTol) {
+   289→   289→        bgMask[j] = 1;
+   290→   290→        queue[qTail++] = j;
+   291→   291→      }
+   292→   292→    }
+   293→   293→    if (y > 0) {
+   294→   294→      const j = i - w;
+   295→   295→      if (!bgMask[j] && edge[j] <= edgeStop && stepDist(i, j) < stepTol) {
+   296→   296→        bgMask[j] = 1;
+   297→   297→        queue[qTail++] = j;
+   298→   298→      }
+   299→   299→    }
+   300→   300→    if (y < h - 1) {
+   301→   301→      const j = i + w;
+   302→   302→      if (!bgMask[j] && edge[j] <= edgeStop && stepDist(i, j) < stepTol) {
+   303→   303→        bgMask[j] = 1;
+   304→   304→        queue[qTail++] = j;
+   305→   305→      }
+   306→   306→    }
+   307→   307→  }
+   308→   308→  let bgCount = 0;
+   309→   309→  for (let i = 0; i < n; i++) bgCount += bgMask[i];
+   310→   310→  const bgFraction = bgCount / n;
+   311→   311→
+   312→   312→  return { w, h, rowLine, colLine, edge, bgMask, bgFraction, noise, medDiff };
+   313→   313→}
+   314→   314→
+   315→   315→/** Top-k pares de linhas (a, b) mais fortes, com separação mínima e margem. */
+   316→   316→function topPairs(
+   317→   317→  profile: Float32Array,
+   318→   318→  n: number,
+   319→   319→  minSpan: number,
+   320→   320→  k: number,
+   321→   321→): { first: number; second: number }[] {
+   322→   322→  const inset = Math.max(1, Math.round(n * 0.02));
+   323→   323→  const lo = inset;
+   324→   324→  const hi = n - inset;
+   325→   325→  const minDist = Math.round(n * minSpan);
+   326→   326→  const all: { first: number; second: number; score: number }[] = [];
+   327→   327→  for (let a = lo; a < hi - minDist; a++) {
+   328→   328→    const sa = profile[a];
+   329→   329→    for (let b = a + minDist; b < hi; b++) {
+   330→   330→      // leve preferência por pares que envolvem mais área (a peça costuma
+   331→   331→      // ocupar a maior parte da foto) sem dominar a força das linhas
+   332→   332→      const score = (sa + profile[b]) * (0.92 + 0.08 * ((b - a) / n));
+   333→   333→      all.push({ first: a, second: b, score });
+   334→   334→    }
+   335→   335→  }
+   336→   336→  all.sort((x, y) => y.score - x.score);
+   337→   337→  const out: { first: number; second: number }[] = [];
+   338→   338→  for (const p of all) {
+   339→   339→    if (out.length >= k) break;
+   340→   340→    if (out.some((q) => Math.abs(q.first - p.first) < n * 0.05 && Math.abs(q.second - p.second) < n * 0.05)) {
+   341→   341→      continue;
+   342→   342→    }
+   343→   343→    out.push({ first: p.first, second: p.second });
+   344→   344→  }
+   345→   345→  return out;
+   346→   346→}
+   347→   347→
+   348→   348→/** Refined: posição de máximo local do perfil em ±win ao redor de `pos`. */
+   349→   349→function refineEdge(profile: Float32Array, pos: number, win: number): number {
+   350→   350→  let bestPos = pos;
+   351→   351→  let bestVal = profile[pos] ?? 0;
+   352→   352→  for (let d = -win; d <= win; d++) {
+   353→   353→    const i = pos + d;
+   354→   354→    if (i < 0 || i >= profile.length) continue;
+   355→   355→    if (profile[i] > bestVal) {
+   356→   356→      bestVal = profile[i];
+   357→   357→      bestPos = i;
+   358→   358→    }
+   359→   359→  }
+   360→   360→  return bestPos;
+   361→   361→}
+   362→   362→
+   363→   363→/**
+   364→   364→ * O lado pedido do retângulo tem FUNDO do lado de fora?
+   365→   365→ * Amostra uma faixa fina logo fora da borda (meio de 60% do lado): com máscara
+   366→   366→ * de fundo disponível, exige maioria de pixels de fundo; sem máscara (fundo
+   367→   367→ * mínimo), cai para a distância de cor vs. a cor de fundo. Fora da imagem
+   368→   368→ * conta como "não limpo" (conservador).
+   369→   369→ */
+   370→   370→function stripClean(
+   371→   371→  rect: CropRect,
+   372→   372→  side: "above" | "below" | "left" | "right",
+   373→   373→  P: Profiles,
+   374→   374→): boolean {
+   375→   375→  const x1 = rect.x;
+   376→   376→  const y1 = rect.y;
+   377→   377→  const x2 = rect.x + rect.width;
+   378→   378→  const y2 = rect.y + rect.height;
+   379→   379→  const gapA = 2;
+   380→   380→  const gapB = 5; // faixa em [borda+2, borda+5]
+   381→   381→  let sx1: number, sy1: number, sx2: number, sy2: number;
+   382→   382→  if (side === "above") {
+   383→   383→    sx1 = x1 + rect.width * 0.2; sx2 = x2 - rect.width * 0.2;
+   384→   384→    sy1 = y1 - gapB; sy2 = y1 - gapA;
+   385→   385→  } else if (side === "below") {
+   386→   386→    sx1 = x1 + rect.width * 0.2; sx2 = x2 - rect.width * 0.2;
+   387→   387→    sy1 = y2 + gapA; sy2 = y2 + gapB;
+   388→   388→  } else if (side === "left") {
+   389→   389→    sx1 = x1 - gapB; sx2 = x1 - gapA;
+   390→   390→    sy1 = y1 + rect.height * 0.2; sy2 = y2 - rect.height * 0.2;
+   391→   391→  } else {
+   392→   392→    sx1 = x2 + gapA; sx2 = x2 + gapB;
+   393→   393→    sy1 = y1 + rect.height * 0.2; sy2 = y2 - rect.height * 0.2;
+   394→   394→  }
+   395→   395→  sx1 = Math.round(sx1); sx2 = Math.round(sx2); sy1 = Math.round(sy1); sy2 = Math.round(sy2);
+   396→   396→  if (sx1 < 0 || sy1 < 0 || sx2 >= P.w || sy2 >= P.h || sx2 < sx1 || sy2 < sy1) return false;
+   397→   397→  let count = 0;
+   398→   398→  let ok = 0;
+   399→   399→  for (let y = sy1; y <= sy2; y++) {
+   400→   400→    for (let x = sx1; x <= sx2; x++) {
+   401→   401→      count++;
+   402→   402→      if (P.bgMask[y * P.w + x]) ok++;
+   403→   403→    }
+   404→   404→  }
+   405→   405→  if (count === 0) return false;
+   406→   406→  if (P.bgFraction >= 0.08) return ok / count >= 0.85;
+   407→   407→  // Sem fundo confiável na máscara: sem evidência de faixa — trata como suja
+   408→   408→  // (a escolha cai para a força das bordas, igual ao comportamento antigo).
+   409→   409→  return false;
+   410→   410→}
+   411→   411→
+   412→   412→/** Quantos lados do retângulo têm fundo confirmado do lado de fora. */
+   413→   413→function cleanSides(rect: CropRect, P: Profiles): number {
+   414→   414→  let clean = 0;
+   415→   415→  for (const side of ["above", "below", "left", "right"] as const) {
+   416→   416→    if (stripClean(rect, side, P)) clean++;
+   417→   417→  }
+   418→   418→  return clean;
+   419→   419→}
+   420→   420→
+   421→   421→/** Força das 4 bordas (perfis normalizados pelos máximos). */
+   422→   422→function edgeStrength(rect: CropRect, P: Profiles): number {
+   423→   423→  const maxRow = Math.max(...P.rowLine) || 1;
+   424→   424→  const maxCol = Math.max(...P.colLine) || 1;
+   425→   425→  const val = (arr: Float32Array, i: number) => arr[clamp(Math.round(i), 0, arr.length - 1)] ?? 0;
+   426→   426→  const top = val(P.rowLine, rect.y) / maxRow;
+   427→   427→  const bottom = val(P.rowLine, rect.y + rect.height) / maxRow;
+   428→   428→  const left = val(P.colLine, rect.x) / maxCol;
+   429→   429→  const right = val(P.colLine, rect.x + rect.width) / maxCol;
+   430→   430→  return (top + bottom + left + right) / 4;
+   431→   431→}
+   432→   432→
+   433→   433→/** Refina as 4 bordas para o máximo local dos perfis. */
+   434→   434→function refineRect(rect: CropRect, P: Profiles): CropRect {
+   435→   435→  const y1 = refineEdge(P.rowLine, rect.y, 4);
+   436→   436→  const y2 = refineEdge(P.rowLine, rect.y + rect.height, 4);
+   437→   437→  const x1 = refineEdge(P.colLine, rect.x, 4);
+   438→   438→  const x2 = refineEdge(P.colLine, rect.x + rect.width, 4);
+   439→   439→  if (x2 - x1 < 8 || y2 - y1 < 8) return rect;
+   440→   440→  return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+   441→   441→}
+   442→   442→
+   443→   443→function iou(a: CropRect, b: CropRect): number {
+   444→   444→  const x1 = Math.max(a.x, b.x);
+   445→   445→  const y1 = Math.max(a.y, b.y);
+   446→   446→  const x2 = Math.min(a.x + a.width, b.x + b.width);
+   447→   447→  const y2 = Math.min(a.y + a.height, b.y + b.height);
+   448→   448→  if (x2 <= x1 || y2 <= y1) return 0;
+   449→   449→  const inter = (x2 - x1) * (y2 - y1);
+   450→   450→  return inter / (a.width * a.height + b.width * b.height - inter);
+   451→   451→}
+   452→   452→
+   453→   453→interface Candidate {
+   454→   454→  rect: CropRect;
+   455→   455→  strength: number;
+   456→   456→  clean: number;
+   457→   457→}
+   458→   458→
+   459→   459→/**
+   460→   460→ * Bounding box do maior componente NÃO-fundo (o que a região crescente não
+   461→   461→ * alcançou a partir da moldura). É a resposta direta para "peça sobre fundo":
+   462→   462→ * sombras e vinheta suaves continuam fundo; a borda da peça barra o crescimento.
+   463→   463→ */
+   464→   464→function floodBounds(P: Profiles): CropRect | null {
+   465→   465→  const { w, h, bgMask } = P;
+   466→   466→  if (P.bgFraction < 0.08) return null; // sem fundo perceptível → nada a recortar
+   467→   467→  const n = w * h;
+   468→   468→  // Abertura morfológica (erosão 5×5 → dilatação 5×5) do não-fundo: remove
+   469→   469→  // linhas finas de textura do fundo (tábuas, veios da madeira) que tocam a
+   470→   470→  // peça e esticariam o bounding box pela conexão.
+   471→   471→  const R = 2;
+   472→   472→  const nonbg = new Uint8Array(n);
+   473→   473→  for (let i = 0; i < n; i++) nonbg[i] = bgMask[i] ? 0 : 1;
+   474→   474→  const eroded = new Uint8Array(n);
+   475→   475→  for (let y = 0; y < h; y++) {
+   476→   476→    for (let x = 0; x < w; x++) {
+   477→   477→      let keep = 1;
+   478→   478→      for (let dy = -R; dy <= R && keep; dy++) {
+   479→   479→        const yy = y + dy;
+   480→   480→        if (yy < 0 || yy >= h) continue; // fora da imagem não erode
+   481→   481→        for (let dx = -R; dx <= R; dx++) {
+   482→   482→          const xx = x + dx;
+   483→   483→          if (xx < 0 || xx >= w) continue;
+   484→   484→          if (!nonbg[yy * w + xx]) { keep = 0; break; }
+   485→   485→        }
+   486→   486→      }
+   487→   487→      eroded[y * w + x] = keep;
+   488→   488→    }
+   489→   489→  }
+   490→   490→  const opened = new Uint8Array(n);
+   491→   491→  for (let y = 0; y < h; y++) {
+   492→   492→    for (let x = 0; x < w; x++) {
+   493→   493→      let hit = 0;
+   494→   494→      for (let dy = -R; dy <= R && !hit; dy++) {
+   495→   495→        const yy = y + dy;
+   496→   496→        if (yy < 0 || yy >= h) continue;
+   497→   497→        for (let dx = -R; dx <= R; dx++) {
+   498→   498→          const xx = x + dx;
+   499→   499→          if (xx < 0 || xx >= w) continue;
+   500→   500→          if (eroded[yy * w + xx]) { hit = 1; break; }
+   501→   501→        }
+   502→   502→      }
+   503→   503→      opened[y * w + x] = hit;
+   504→   504→    }
+   505→   505→  }
+   506→   506→  // Maior componente conexo (4-vizinhança) entre os pixels não-fundo abertos.
+   507→   507→  const seen = new Uint8Array(n);
+   508→   508→  const queue = new Int32Array(n);
+   509→   509→  let bestArea = 0;
+   510→   510→  let bestBox: CropRect | null = null;
+   511→   511→  for (let start = 0; start < n; start++) {
+   512→   512→    if (!opened[start] || seen[start]) continue;
+   513→   513→    let qHead = 0;
+   514→   514→    let qTail = 0;
+   515→   515→    queue[qTail++] = start;
+   516→   516→    seen[start] = 1;
+   517→   517→    let area = 0;
+   518→   518→    let x1 = w, y1 = h, x2 = 0, y2 = 0;
+   519→   519→    while (qHead < qTail) {
+   520→   520→      const i = queue[qHead++];
+   521→   521→      area++;
+   522→   522→      const x = i % w;
+   523→   523→      const y = (i / w) | 0;
+   524→   524→      if (x < x1) x1 = x;
+   525→   525→      if (x > x2) x2 = x;
+   526→   526→      if (y < y1) y1 = y;
+   527→   527→      if (y > y2) y2 = y;
+   528→   528→      if (x > 0 && opened[i - 1] && !seen[i - 1]) { seen[i - 1] = 1; queue[qTail++] = i - 1; }
+   529→   529→      if (x < w - 1 && opened[i + 1] && !seen[i + 1]) { seen[i + 1] = 1; queue[qTail++] = i + 1; }
+   530→   530→      if (y > 0 && opened[i - w] && !seen[i - w]) { seen[i - w] = 1; queue[qTail++] = i - w; }
+   531→   531→      if (y < h - 1 && opened[i + w] && !seen[i + w]) { seen[i + w] = 1; queue[qTail++] = i + w; }
+   532→   532→    }
+   533→   533→    if (area > bestArea) {
+   534→   534→      bestArea = area;
+   535→   535→      bestBox = { x: x1, y: y1, width: x2 - x1 + 1, height: y2 - y1 + 1 };
+   536→   536→    }
+   537→   537→  }
+   538→   538→  return bestBox;
+   539→   539→}
+   540→   540→
+   541→   541→/**
+   542→   542→ * Detecta os limites da peça (cartão/panfleto) na foto.
+   543→   543→ * Retorna null quando não encontra com confiança — o usuário recorta na mão.
+   544→   544→ */
+   545→   545→export function detectArtworkBounds(src: HTMLCanvasElement): CropRect | null {
+   546→   546→  const W = src.width;
+   547→   547→  const H = src.height;
+   548→   548→  if (W < 3 * CROP_MIN_PX || H < 3 * CROP_MIN_PX) return null;
+   549→   549→
+   550→   550→  const P = buildProfiles(src);
+   551→   551→  const { w, h } = P;
+   552→   552→  const minFrac = 0.22;
+   553→   553→
+   554→   554→  const candidates: Candidate[] = [];
+   555→   555→  const valid = (r: CropRect) =>
+   556→   556→    r.width >= w * minFrac && r.height >= h * minFrac && r.width <= w && r.height <= h;
+   557→   557→  const push = (rect: CropRect) => {
+   558→   558→    if (!valid(rect)) return;
+   559→   559→    const refined = refineRect(rect, P);
+   560→   560→    if (!valid(refined)) return;
+   561→   561→    candidates.push({
+   562→   562→      rect: refined,
+   563→   563→      strength: edgeStrength(refined, P),
+   564→   564→      clean: cleanSides(refined, P),
+   565→   565→    });
+   566→   566→  };
+   567→   567→
+   568→   568→  // ---- Candidato principal: bounding box do maior componente não-fundo ----
+   569→   569→  const flood = floodBounds(P);
+   570→   570→  if (flood) push(flood);
+   571→   571→
+   572→   572→  // ---- Candidatos de reserva: pares de linhas de Sobel (cenas texturizadas) ----
+   573→   573→  const rowPairs = topPairs(P.rowLine, h, 0.3, 3);
+   574→   574→  const colPairs = topPairs(P.colLine, w, 0.3, 3);
+   575→   575→  for (const rp of rowPairs) {
+   576→   576→    for (const cp of colPairs) {
+   577→   577→      push({ x: cp.first, y: rp.first, width: cp.second - cp.first, height: rp.second - rp.first });
+   578→   578→    }
+   579→   579→  }
+   580→   580→
+   581→   581→  if (candidates.length === 0) return null;
+   582→   582→
+   583→   583→  // Deduplica (IoU alto → fica o de melhor pontuação) e escolhe:
+   584→   584→  // 1º critério = nº de lados com fundo do lado de fora; 2º = força das bordas.
+   585→   585→  candidates.sort((a, b) => b.clean - a.clean || b.strength - a.strength);
+   586→   586→  let best = candidates[0];
+   587→   587→  for (const c of candidates) {
+   588→   588→    if (c === best) continue;
+   589→   589→    if (iou(c.rect, best.rect) > 0.85 && (c.clean > best.clean || (c.clean === best.clean && c.strength > best.strength))) {
+   590→   590→      best = c;
+   591→   591→    }
+   592→   592→  }
+   593→   593→  // ---- Escala de volta para a resolução da fonte (+ recuo de 1 px p/ evitar halo) ----
+   594→   594→  const sx = W / w;
+   595→   595→  const sy = H / h;
+   596→   596→  const rect = clampRect(
+   597→   597→    {
+   598→   598→      x: Math.round(best.rect.x * sx) + 1,
+   599→   599→      y: Math.round(best.rect.y * sy) + 1,
+   600→   600→      width: Math.round(best.rect.width * sx) - 2,
+   601→   601→      height: Math.round(best.rect.height * sy) - 2,
+   602→   602→    },
+   603→   603→    W,
+   604→   604→    H,
+   605→   605→  );
+   606→   606→
+   607→   607→  // Sanity final em px da fonte.
+   608→   608→  if (rect.width < W * 0.2 || rect.height < H * 0.2) return null;
+   609→   609→  return rect;
+   610→   610→}
+   611→   611→
+   612→   612→/** Aplica o recorte: devolve um novo canvas com a região pedida. */
+   613→   613→export function cropCanvasRect(
+   614→   614→  source: HTMLCanvasElement,
+   615→   615→  rect: CropRect,
+   616→   616→): HTMLCanvasElement {
+   617→   617→  const out = makeCanvas(rect.width, rect.height);
+   618→   618→  const ctx = out.getContext("2d")!;
+   619→   619→  ctx.imageSmoothingEnabled = true;
+   620→   620→  ctx.imageSmoothingQuality = "high";
+   621→   621→  ctx.drawImage(
+   622→   622→    source,
+   623→   623→    rect.x, rect.y, rect.width, rect.height,
+   624→   624→    0, 0, rect.width, rect.height,
+   625→   625→  );
+   626→   626→  return out;
+   627→   627→}
+   628→   628→
+   629→   629→// ---------------------------------------------------------------------------
+   630→   630→// Travas de proporção e redimensionamento (usadas pelo diálogo de recorte)
+   631→   631→// ---------------------------------------------------------------------------
+   632→   632→
+   633→   633→export interface CropPreset {
+   634→   634→  id: string;
+   635→   635→  label: string;
+   636→   636→  /** Proporção largura/altura; null = livre. */
+   637→   637→  ratio: number | null;
+   638→   638→}
+   639→   639→
+   640→   640→/** Presets de proporção para a trava do recorte, incluindo o produto atual. */
+   641→   641→export function cropPresets(spec: ProductSpec): CropPreset[] {
+   642→   642→  return [
+   643→   643→    { id: "free", label: "Livre", ratio: null },
+   644→   644→    {
+   645→   645→      id: "product",
+   646→   646→      label: `${spec.name} — ${fmtMm(spec.widthMm)} × ${fmtMm(spec.heightMm)} mm`,
+   647→   647→      ratio: spec.widthMm / spec.heightMm,
+   648→   648→    },
+   649→   649→    { id: "a4-portrait", label: "A4 retrato — 210 × 297 mm", ratio: 210 / 297 },
+   650→   650→    { id: "a4-landscape", label: "A4 paisagem — 297 × 210 mm", ratio: 297 / 210 },
+   651→   651→    { id: "square", label: "Quadrado — 1:1", ratio: 1 },
+   652→   652→  ];
+   653→   653→}
+   654→   654→
+   655→   655→/** DPI efetivo do recorte no tamanho de corte do produto. */
+   656→   656→export function cropEffectiveDpi(rect: CropRect, spec: ProductSpec): number {
+   657→   657→  return Math.round(
+   658→   658→    Math.min(
+   659→   659→      rect.width / (spec.widthMm / 25.4),
+   660→   660→      rect.height / (spec.heightMm / 25.4),
+   661→   661→    ),
+   662→   662→  );
+   663→   663→}
+   664→   664→
+   665→   665→export type CropHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "move";
+   666→   666→
+   667→   667→/**
+   668→   668→ * Redimensiona o retângulo a partir do arrasto de uma alça.
+   669→   669→ * `px/py` = posição do ponteiro em coordenadas da IMAGEM.
+   670→   670→ * Quando `ratio` é informado, a proporção é mantida em todas as alças.
+   671→   671→ */
+   672→   672→export function resizeRect(
+   673→   673→  start: CropRect,
+   674→   674→  handle: CropHandle,
+   675→   675→  px: number,
+   676→   676→  py: number,
+   677→   677→  ratio: number | null,
+   678→   678→  W: number,
+   679→   679→  H: number,
+   680→   680→): CropRect {
+   681→   681→  const min = CROP_MIN_PX;
+   682→   682→
+   683→   683→  if (handle === "move") {
+   684→   684→    return clampRect({ ...start }, W, H); // o movimento real é feito no diálogo via delta
+   685→   685→  }
+   686→   686→
+   687→   687→  if (!ratio) {
+   688→   688→    let x1 = start.x;
+   689→   689→    let y1 = start.y;
+   690→   690→    let x2 = start.x + start.width;
+   691→   691→    let y2 = start.y + start.height;
+   692→   692→    if (handle.includes("w")) x1 = clamp(px, 0, x2 - min);
+   693→   693→    if (handle.includes("e")) x2 = clamp(px, x1 + min, W);
+   694→   694→    if (handle.includes("n")) y1 = clamp(py, 0, y2 - min);
+   695→   695→    if (handle.includes("s")) y2 = clamp(py, y1 + min, H);
+   696→   696→    return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+   697→   697→  }
+   698→   698→
+   699→   699→  // ---- Com trava de proporção ----
+   700→   700→  if (handle.length === 2) {
+   701→   701→    // Canto: ancora no canto oposto, encaixa a proporção no espaço disponível.
+   702→   702→    const anchorX = handle.includes("w") ? start.x + start.width : start.x;
+   703→   703→    const anchorY = handle.includes("n") ? start.y + start.height : start.y;
+   704→   704→    const availW = handle.includes("w") ? anchorX : W - anchorX;
+   705→   705→    const availH = handle.includes("n") ? anchorY : H - anchorY;
+   706→   706→    const dw = clamp(handle.includes("w") ? anchorX - px : px - anchorX, min, availW);
+   707→   707→    const dh = clamp(handle.includes("n") ? anchorY - py : py - anchorY, min, availH);
+   708→   708→    let width = Math.max(min, Math.min(dw, dh * ratio));
+   709→   709→    let height = width / ratio;
+   710→   710→    if (height > availH) {
+   711→   711→      height = availH;
+   712→   712→      width = Math.max(min, height * ratio);
+   713→   713→    }
+   714→   714→    const x = handle.includes("w") ? anchorX - width : anchorX;
+   715→   715→    const y = handle.includes("n") ? anchorY - height : anchorY;
+   716→   716→    return { x, y, width, height };
+   717→   717→  }
+   718→   718→
+   719→   719→  // Borda: muda uma dimensão e recentra a outra (proporção mantida).
+   720→   720→  if (handle === "n" || handle === "s") {
+   721→   721→    let height = handle === "n" ? start.y + start.height - py : py - start.y;
+   722→   722→    height = clamp(height, min, H);
+   723→   723→    let width = height * ratio;
+   724→   724→    if (width > W) {
+   725→   725→      width = W;
+   726→   726→      height = width / ratio;
+   727→   727→    }
+   728→   728→    const cx = start.x + start.width / 2;
+   729→   729→    const x = clamp(cx - width / 2, 0, W - width);
+   730→   730→    const y = handle === "n" ? clamp(start.y + start.height - height, 0, H - height) : clamp(start.y, 0, H - height);
+   731→   731→    return { x, y, width, height };
+   732→   732→  }
+   733→   733→  // "e" / "w"
+   734→   734→  let width = handle === "w" ? start.x + start.width - px : px - start.x;
+   735→   735→  width = clamp(width, min, W);
+   736→   736→  let height = width / ratio;
+   737→   737→  if (height > H) {
+   738→   738→    height = H;
+   739→   739→    width = height * ratio;
+   740→   740→  }
+   741→   741→  const cy = start.y + start.height / 2;
+   742→   742→  const y = clamp(cy - height / 2, 0, H - height);
+   743→   743→  const x = handle === "w" ? clamp(start.x + start.width - width, 0, W - width) : clamp(start.x, 0, W - width);
+   744→   744→  return { x, y, width, height };
+   745→   745→}
+   746→   746→
+   747→   747→/** Move o retângulo por um delta (px da imagem), mantendo o tamanho. */
+   748→   748→export function moveRect(start: CropRect, dx: number, dy: number, W: number, H: number): CropRect {
+   749→   749→  return clampRect({ ...start, x: start.x + dx, y: start.y + dy }, W, H);
+   750→   750→}
+   751→   751→

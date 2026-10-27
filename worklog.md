@@ -137,3 +137,21 @@ Work Log:
 
 Stage Summary:
 - Novo recurso "Linha de corte fina": fio cinza-claro de ≈0,17 mm na borda de cada peça, ativável no preview e na exportação (estado compartilhado), com ampliação 1:1 para conferência. Resolve o corte aleatório de cartões de fundo branco na guilhotina; o tamanho de corte permanece exato (o fio é impresso dentro da medida) e some quase totalmente no produto final.
+
+---
+Task ID: 9
+Agent: main (Z.ai)
+Task: Usuário reportou que a função de recorte ("Recortar a arte") sumiu após a atualização da linha de corte. Investigação: o código do recorte + rotação NÃO existia mais no repositório nem no histórico do git (só sobrou o ícone Crop no enhance-panel) — as mudanças da sessão anterior se perderam. Reconstrução completa da feature com todas as melhorias pedidas.
+
+Work Log:
+- Diagnóstico: grep por recortar/crop/girar/rotate em src/ só encontrou ícones lucide; git log (9 commits) não contém nenhuma alteração de recorte — a feature foi perdida entre sessões (nunca commitada). Reportado ao usuário como "ficou para trás" e reconstruída.
+- NOVO src/lib/print/crop.ts: funções puras rotateCanvas90 (cw/ccw, sem interpolação), rotateRect (remapeia o quadro junto com a rotação), cropCanvas (cópia 1:1), isFullRect, sessionHasCrop, sessionsEqual, effectiveDpi; tipos CropRect/CropSession.
+- NOVO src/components/print/crop-panel.tsx (Etapa 2 — "Recortar a arte"): visualização fit-to-view (max-w/max-h, a arte INTEIRA sempre visível — corrige o feedback antigo do quadro pequeno); quadro arrastável (mover) com 8 alças (cantos+bordas) posicionadas em % (acompanham o CSS); drag por listeners na window (mouse/toque/eventos sintéticos); botões 90° à esquerda/direita (a rotação remapeia o quadro para o mesmo conteúdo); Resetar; feedback ao vivo (área px, DPI efetivos min-axe com badge OK/Atenção/Crítico, aviso de proporção ≠ produto); botão contextual "Aplicar recorte e continuar" / "Continuar sem recortar".
+- page.tsx: fluxo agora tem 5 ETAPAS (Upload → Recorte & Rotação → Tratamento → Pré-visualização → Exportar); rawSourceRef (arquivo original, imutável) separado de sourceRef (fonte do pipeline); cropSession (rascunho, persiste ao navegar) + cropAppliedRef (sessão já consumida); handleCropApply aplica/reverte/reusa o recorte com comparação exata (evita re-análise redundante); recorte reaplica analyzeArtwork+recommendSettings+preparePrintCanvas sobre a arte recortada.
+- step-nav.tsx: 5 etapas (ícone Crop em "Recorte & Rotação"), grid lg:grid-cols-5.
+- enhance-panel.tsx: coluna Antes × Depois restaurada como sticky (self-start lg:sticky lg:top-20) — acompanha a rolagem durante os ajustes (segundo feedback antigo que também havia se perdido).
+- BUG REAL encontrado no E2E: pointerdown na alça borbulhava para o quadro, registrando um segundo drag "move" que sobrescrevia o redimensionamento (o quadro não mudava). Corrigido com stopPropagation no onPointerDown das alças.
+- E2E agent-browser com upload/test-card-ambiente-pe.png (cartão em pé dentro de ambiente teal, scripts/make_test_ambiente.py): giro cw → 1400×1200 "Paisagem · Girada 90°"; drags sintéticos SE+NW posicionaram o quadro em (139, 270, 1122×661) — box em % pixel-exato (9,93/22,5/80,14/55,08) e área "1122 × 661 px"; aplicar → tratamento com 0 pixels teal e laranja #b45309 exatamente no lado previsto pela rotação; Voltar 2× → sessão de recorte persistida (mesmo quadro); concluir fluxo → PDF validado (scripts/verify_crop_pdf.py): A4 exato, 10 peças = cartão girado+recortado (laranja à direita + banda escura), 0 pixels de ambiente; regressão "Continuar sem recortar" OK (arte normal segue 1:1); sticky presente; console sem erros; lint limpo.
+
+Stage Summary:
+- A tela "Recortar a arte" foi reconstruída de zero como Etapa 2 do fluxo (agora 5 etapas): recorte manual com quadro/alças, rotação 90° (cartão em pé → deitado, panfleto deitado → em pé), preview fit-to-view da arte inteira, diagnóstico de DPI do recorte e persistência ao navegar. O tratamento/preview/exportação continuam idênticos e agora consomem a arte recortada/girada. Melhoria do Antes × Depois sticky também restaurada.

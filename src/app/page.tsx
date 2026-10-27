@@ -6,6 +6,7 @@ import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { StepNav } from "@/components/print/step-nav";
 import { UploadPanel } from "@/components/print/upload-panel";
+import { CropPanel } from "@/components/print/crop-panel";
 import { EnhancePanel } from "@/components/print/enhance-panel";
 import { PreviewPanel } from "@/components/print/preview-panel";
 import { ExportPanel } from "@/components/print/export-panel";
@@ -14,10 +15,17 @@ import {
   type ProductId,
 } from "@/lib/print/constants";
 import {
+  renderImposedSheet,
+  computeLayout,
+  DEFAULT_BOTTOM_GUARD_MM,
+  type ImpositionLayout,
+} from "@/lib/print/imposition";
+import {
   analyzeArtwork,
   makeCanvas,
   type ImageAnalysis,
 } from "@/lib/print/analysis";
+import type { CropSession } from "@/lib/print/crop";
 import {
   preparePrintCanvas,
   applyEnhancements,
@@ -25,12 +33,6 @@ import {
   type EnhanceSettings,
   type FitMode,
 } from "@/lib/print/enhance";
-import {
-  renderImposedSheet,
-  computeLayout,
-  DEFAULT_BOTTOM_GUARD_MM,
-  type ImpositionLayout,
-} from "@/lib/print/imposition";
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
@@ -93,8 +95,15 @@ export default function Home() {
   const [cutLine, setCutLine] = useState(false);
 
   const enhanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** Canvas decodificado no tamanho natural — mantido para re-enquadrar sem re-decodificar. */
+  /** Canvas decodificado no tamanho natural — mantido para re-enquadrar sem re-decodificar.
+   *  Após um recorte, passa a apontar para a arte recortada (o pipeline consome este). */
   const sourceRef = useRef<HTMLCanvasElement | null>(null);
+  /** Canvas decodificado ORIGINAL do arquivo — base para re-recortar de novo (nunca mutado). */
+  const rawSourceRef = useRef<HTMLCanvasElement | null>(null);
+  /** Rascunho da sessão de recorte — sobrevive à navegação entre etapas. */
+  const [cropSession, setCropSession] = useState<CropSession | null>(null);
+  /** Sessão de recorte já consumida pelo pipeline (evita re-análise desnecessária). */
+  const cropAppliedRef = useRef<{ session: CropSession; canvas: HTMLCanvasElement } | null>(null);
 
   const spec = product ? PRODUCTS[product] : null;
 
@@ -107,6 +116,9 @@ export default function Home() {
     setMaxReached(1);
     setStep(1);
     sourceRef.current = null;
+    rawSourceRef.current = null;
+    cropAppliedRef.current = null;
+    setCropSession(null);
   }, []);
 
   const handleProductChange = useCallback(
@@ -125,7 +137,7 @@ export default function Home() {
     [preparedCanvas, resetDerived],
   );
 
-  // ---- Etapa 1 → 2: decodifica, analisa e reamostra para 300 DPI ----
+  // ---- Etapa 1 → 2: decodifica, analisa e vai para o recorte (etapa 2) ----
   const handleAnalyze = useCallback(async () => {
     if (!file || !spec) return;
     setAnalyzing(true);
@@ -134,7 +146,10 @@ export default function Home() {
       const source = await fileToCanvas(file);
       const result = analyzeArtwork(source, spec);
       const prepared = preparePrintCanvas(source, spec, fitMode);
+      rawSourceRef.current = source;
       sourceRef.current = source;
+      cropAppliedRef.current = null;
+      setCropSession(null);
       setAnalysis(result);
       setPreparedCanvas(prepared);
       setSettings(recommendSettings(result));
@@ -180,12 +195,12 @@ export default function Home() {
     };
   }, [preparedCanvas, analysis, settings]);
 
-  // ---- Etapa 2 → 3: monta a folha imposta sempre que a arte tratada, a guarda ou a linha de corte mudam ----
+  // ---- Etapa 3 → 4: monta a folha imposta sempre que a arte tratada, a guarda ou a linha de corte mudam ----
   useEffect(() => {
     if (!enhancedCanvas || !spec) return;
     const { canvas } = renderImposedSheet(enhancedCanvas, spec, { bottomGuardMm, cutLine });
     setSheetCanvas(canvas);
-    setMaxReached((m) => Math.max(m, 4));
+    setMaxReached((m) => Math.max(m, 5));
   }, [enhancedCanvas, spec, bottomGuardMm, cutLine]);
 
   const layout: ImpositionLayout | null = useMemo(
@@ -197,6 +212,44 @@ export default function Home() {
     setStep(s);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
+
+  // ---- Etapa 2 → 3: aplica (ou não) o recorte/rotação e segue para o tratamento ----
+  const handleCropApply = useCallback(
+    (result: HTMLCanvasElement | null, session: CropSession | null) => {
+      if (!spec) return;
+      const applied = cropAppliedRef.current;
+      if (!result || !session) {
+        // Nada a aplicar — se havia recorte no pipeline, reverte para a arte original.
+        if (applied && rawSourceRef.current) {
+          const a = analyzeArtwork(rawSourceRef.current, spec);
+          sourceRef.current = rawSourceRef.current;
+          setAnalysis(a);
+          setSettings(recommendSettings(a));
+          setPreparedCanvas(preparePrintCanvas(rawSourceRef.current, spec, fitMode));
+          cropAppliedRef.current = null;
+        }
+        goTo(3);
+        return;
+      }
+      const same =
+        applied &&
+        applied.session.rotation % 360 === session.rotation % 360 &&
+        Math.abs(applied.session.rect.x - session.rect.x) <= 0.5 &&
+        Math.abs(applied.session.rect.y - session.rect.y) <= 0.5 &&
+        Math.abs(applied.session.rect.w - session.rect.w) <= 0.5 &&
+        Math.abs(applied.session.rect.h - session.rect.h) <= 0.5;
+      if (!same) {
+        const a = analyzeArtwork(result, spec);
+        sourceRef.current = result;
+        setAnalysis(a);
+        setSettings(recommendSettings(a));
+        setPreparedCanvas(preparePrintCanvas(result, spec, fitMode));
+        cropAppliedRef.current = { session, canvas: result };
+      }
+      goTo(3);
+    },
+    [spec, fitMode, goTo],
+  );
 
   return (
     <div className="flex min-h-screen flex-col bg-muted/30">
@@ -235,7 +288,17 @@ export default function Home() {
             />
           )}
 
-          {step === 2 && spec && analysis && settings && preparedCanvas && (
+          {step === 2 && spec && rawSourceRef.current && (
+            <CropPanel
+              source={rawSourceRef.current}
+              spec={spec}
+              session={cropSession}
+              onSessionChange={setCropSession}
+              onApply={handleCropApply}
+            />
+          )}
+
+          {step === 3 && spec && analysis && settings && preparedCanvas && (
             <EnhancePanel
               spec={spec}
               analysis={analysis}
@@ -246,23 +309,23 @@ export default function Home() {
               preparedCanvas={preparedCanvas}
               enhancedCanvas={enhancedCanvas}
               processing={enhancing}
-              onContinue={() => goTo(3)}
+              onContinue={() => goTo(4)}
               onResetSettings={() => analysis && setSettings(recommendSettings(analysis))}
             />
           )}
 
-          {step === 3 && spec && layout && (
+          {step === 4 && spec && layout && (
             <PreviewPanel
               spec={spec}
               layout={layout}
               sheetCanvas={sheetCanvas}
               cutLine={cutLine}
               onCutLineChange={setCutLine}
-              onContinue={() => goTo(4)}
+              onContinue={() => goTo(5)}
             />
           )}
 
-          {step === 4 && spec && (
+          {step === 5 && spec && (
             <ExportPanel
               spec={spec}
               sheetCanvas={sheetCanvas}

@@ -348,8 +348,9 @@ export function EnhancePanel({
         </Card>
       </div>
 
-      {/* Coluna direita: antes/depois */}
-      <div className="flex flex-col gap-6">
+      {/* Coluna direita: antes/depois — sticky: acompanha a rolagem enquanto os controles
+          da esquerda são ajustados (a coluna esquerda é mais alta que esta) */}
+      <div className="flex flex-col gap-6 self-start lg:sticky lg:top-20">
         <Card className="flex-1">
           <CardHeader>
             <CardTitle>Antes × Depois</CardTitle>

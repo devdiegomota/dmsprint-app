@@ -1,0 +1,575 @@
+     1→"use client";
+     2→
+     3→import { useState } from "react";
+     4→import { Gauge, ScanLine, Type, Contrast, Crop, Frame, Scaling, Loader2, RotateCcw, ArrowRight, TriangleAlert, Sparkles, Undo2, CheckCircle2, Scissors } from "lucide-react";
+     5→import { Button } from "@/components/ui/button";
+     6→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+     7→import { Badge } from "@/components/ui/badge";
+     8→import { Switch } from "@/components/ui/switch";
+     9→import { Slider } from "@/components/ui/slider";
+    10→import { Label } from "@/components/ui/label";
+    11→import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+    12→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+    13→import { CanvasView } from "./canvas-view";
+    14→import { CropDialog } from "./crop-dialog";
+    15→import { cn } from "@/lib/utils";
+    16→import { fmtMm, type ProductSpec } from "@/lib/print/constants";
+    17→import type { ImageAnalysis } from "@/lib/print/analysis";
+    18→import { framingInfo, type EnhanceSettings, type FitMode } from "@/lib/print/enhance";
+    19→import type { CropRect } from "@/lib/print/crop";
+    20→
+    21→function MetricBadge({ level }: { level: "good" | "warn" | "bad" }) {
+    22→  return (
+    23→    <Badge
+    24→      variant="secondary"
+    25→      className={cn(
+    26→        level === "good" && "bg-emerald-600/15 text-emerald-700 dark:text-emerald-400",
+    27→        level === "warn" && "bg-amber-600/15 text-amber-700 dark:text-amber-400",
+    28→        level === "bad" && "bg-red-600/15 text-red-700 dark:text-red-400",
+    29→      )}
+    30→    >
+    31→      {level === "good" ? "OK" : level === "warn" ? "Atenção" : "Crítico"}
+    32→    </Badge>
+    33→  );
+    34→}
+    35→
+    36→function MetricCard({
+    37→  icon,
+    38→  title,
+    39→  value,
+    40→  detail,
+    41→  level,
+    42→  className,
+    43→}: {
+    44→  icon: React.ReactNode;
+    45→  title: string;
+    46→  value: string;
+    47→  detail: string;
+    48→  level: "good" | "warn" | "bad";
+    49→  className?: string;
+    50→}) {
+    51→  return (
+    52→    <div className={cn("flex items-start gap-3 rounded-lg border bg-card p-3.5", className)}>
+    53→      <div className="mt-0.5 text-amber-600">{icon}</div>
+    54→      <div className="min-w-0 flex-1">
+    55→        <div className="flex items-center justify-between gap-2">
+    56→          <p className="text-sm font-medium">{title}</p>
+    57→          <MetricBadge level={level} />
+    58→        </div>
+    59→        <p className="mt-0.5 text-lg font-semibold leading-tight">{value}</p>
+    60→        <p className="text-xs leading-relaxed text-muted-foreground">{detail}</p>
+    61→      </div>
+    62→    </div>
+    63→  );
+    64→}
+    65→
+    66→const FIT_OPTIONS: { value: FitMode; icon: React.ReactNode; label: string; desc: string }[] = [
+    67→  {
+    68→    value: "cover",
+    69→    icon: <Crop className="h-4 w-4" aria-hidden />,
+    70→    label: "Preencher o corte (recorta sobras)",
+    71→    desc: "Escala até cobrir todo o tamanho de corte, centralizada — nunca distorce. Padrão para artes prontas.",
+    72→  },
+    73→  {
+    74→    value: "contain",
+    75→    icon: <Frame className="h-4 w-4" aria-hidden />,
+    76→    label: "Conter (bordas brancas)",
+    77→    desc: "Arte inteira visível, sem distorção; o restante vira margem branca. Ideal para logos e quadros.",
+    78→  },
+    79→  {
+    80→    value: "stretch",
+    81→    icon: <Scaling className="h-4 w-4" aria-hidden />,
+    82→    label: "Esticar para o corte exato",
+    83→    desc: "Preenche esticando — use apenas se a arte já estiver na proporção exata do produto.",
+    84→  },
+    85→];
+    86→
+    87→export function EnhancePanel({
+    88→  spec,
+    89→  analysis,
+    90→  settings,
+    91→  onSettingsChange,
+    92→  fitMode,
+    93→  onFitModeChange,
+    94→  preparedCanvas,
+    95→  enhancedCanvas,
+    96→  processing,
+    97→  aiRestoring,
+    98→  aiRestored,
+    99→  aiError,
+   100→  preAiPrepared,
+   101→  onAiRestore,
+   102→  onAiRevert,
+   103→  sourceCanvas,
+   104→  cropApplied,
+   105→  cropSize,
+   106→  onCropApply,
+   107→  onCropRevert,
+   108→  onContinue,
+   109→  onResetSettings,
+   110→}: {
+   111→  spec: ProductSpec;
+   112→  analysis: ImageAnalysis;
+   113→  settings: EnhanceSettings;
+   114→  onSettingsChange: (s: EnhanceSettings) => void;
+   115→  fitMode: FitMode;
+   116→  onFitModeChange: (f: FitMode) => void;
+   117→  preparedCanvas: HTMLCanvasElement;
+   118→  enhancedCanvas: HTMLCanvasElement | null;
+   119→  processing: boolean;
+   120→  aiRestoring: boolean;
+   121→  aiRestored: boolean;
+   122→  aiError: string | null;
+   123→  preAiPrepared: HTMLCanvasElement | null;
+   124→  onAiRestore: () => void;
+   125→  onAiRevert: () => void;
+   126→  sourceCanvas: HTMLCanvasElement | null;
+   127→  cropApplied: boolean;
+   128→  cropSize: { w: number; h: number } | null;
+   129→  onCropApply: (rect: CropRect) => void;
+   130→  onCropRevert: () => void;
+   131→  onContinue: () => void;
+   132→  onResetSettings: () => void;
+   133→}) {
+   134→  const [cropOpen, setCropOpen] = useState(false);
+   135→  const update = (patch: Partial<EnhanceSettings>) => onSettingsChange({ ...settings, ...patch });
+   136→
+   137→  const sharpLevel = analysis.sharpnessScore < 45 ? "bad" : analysis.sharpnessScore < 65 ? "warn" : "good";
+   138→  const resLevel = analysis.effectiveDpi >= 300 ? "good" : analysis.effectiveDpi >= 200 ? "warn" : "bad";
+   139→  const textLevel = analysis.thinTextScore >= 70 ? "bad" : analysis.thinTextScore >= 45 ? "warn" : "good";
+   140→
+   141→  const framing = framingInfo(analysis.naturalWidth, analysis.naturalHeight, spec);
+   142→  const ratioLevel = framing.ratioMatches ? "good" : framing.ratioDiff <= 0.08 ? "warn" : "bad";
+   143→  const axisLabel = (axis: "x" | "y") => (axis === "x" ? "da largura" : "da altura");
+   144→  const framingWarning = framing.ratioMatches
+   145→    ? "Proporção da arte compatível com o produto — os três modos produzem o mesmo resultado."
+   146→    : fitMode === "cover"
+   147→      ? `A arte é proporcionalmente diferente do produto — no modo Preencher, ≈${framing.cropPct.toFixed(0)}% ${axisLabel(framing.cropAxis!)} serão recortados (corte central). Prefira "Conter" para mostrar a arte inteira.`
+   148→      : fitMode === "contain"
+   149→        ? `A arte é proporcionalmente diferente do produto — no modo Conter, surgem bordas brancas de ≈${framing.barPct.toFixed(0)}% ${axisLabel(framing.barAxis!)} em cada lado.`
+   150→        : `A arte será esticada ≈${framing.stretchPct.toFixed(0)}% ${axisLabel(framing.stretchAxis!)} — textos e logotipos podem ficar visivelmente deformados. Prefira "Preencher" ou "Conter".`;
+   151→
+   152→  const aiRecommended = analysis.isBlurry || analysis.isLowRes;
+   153→
+   154→  return (
+   155→    <div className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,4fr)]">
+   156→      {/* Coluna esquerda: análise + controles */}
+   157→      <div className="flex flex-col gap-6">
+   158→        <Card>
+   159→          <CardHeader>
+   160→            <CardTitle>Diagnóstico da arte</CardTitle>
+   161→            <CardDescription>
+   162→              {spec.name} · destino {fmtMm(spec.widthMm)} × {fmtMm(spec.heightMm)} mm @ 300 DPI — fonte:{" "}
+   163→              {analysis.naturalWidth} × {analysis.naturalHeight} px ({analysis.effectiveDpi} DPI efetivos)
+   164→            </CardDescription>
+   165→          </CardHeader>
+   166→          <CardContent className="grid gap-3 sm:grid-cols-2">
+   167→            <MetricCard
+   168→              icon={<Gauge className="h-5 w-5" aria-hidden />}
+   169→              title="Nitidez"
+   170→              value={`${analysis.sharpnessScore}/100`}
+   171→              detail={
+   172→                analysis.isBlurry
+   173→                  ? "Imagem com baixa nitidez — máscara de contraste aplicada automaticamente."
+   174→                  : "Nitidez adequada; foi aplicado um realce leve padrão de impressão."
+   175→              }
+   176→              level={sharpLevel}
+   177→            />
+   178→            <MetricCard
+   179→              icon={<ScanLine className="h-5 w-5" aria-hidden />}
+   180→              title="Resolução efetiva"
+   181→              value={`${analysis.effectiveDpi} DPI`}
+   182→              detail={
+   183→                analysis.isLowRes
+   184→                  ? "Menor que 300 DPI — a arte foi reamostrada e realçada para o tamanho de corte."
+   185→                  : "Resolução suficiente para impressão offset/digital sem perda."
+   186→              }
+   187→              level={resLevel}
+   188→            />
+   189→            <MetricCard
+   190→              icon={<Type className="h-5 w-5" aria-hidden />}
+   191→              title="Texto fino detectado"
+   192→              value={`${analysis.thinTextScore}%`}
+   193→              detail={
+   194→                analysis.likelyThinText
+   195→                  ? "Traços finos prováveis — reforço morfológico recomendado para não sumirem na impressão."
+   196→                  : "Sem indícios fortes de texto fino; reforço leve aplicado como segurança."
+   197→              }
+   198→              level={textLevel}
+   199→            />
+   200→            <MetricCard
+   201→              icon={<Contrast className="h-5 w-5" aria-hidden />}
+   202→              title="Fundo predominante"
+   203→              value={analysis.lightBackground ? "Claro" : "Escuro"}
+   204→              detail={
+   205→                analysis.lightBackground
+   206→                  ? "Reforço usará dilação do escuro (engrossa texto preto/escuro)."
+   207→                  : "Reforço usará dilação do claro (engrossa texto branco/claro)."
+   208→              }
+   209→              level="good"
+   210→            />
+   211→            <MetricCard
+   212→              className="sm:col-span-2"
+   213→              icon={<Frame className="h-5 w-5" aria-hidden />}
+   214→              title="Proporção da arte"
+   215→              value={`${framing.srcRatio.toFixed(2)} : 1 · destino ${framing.targetRatio.toFixed(2)} : 1`}
+   216→              detail={
+   217→                framing.ratioMatches
+   218→                  ? "Compatível com o tamanho de corte — sem recorte nem margens extras."
+   219→                  : `Difere do corte ${fmtMm(spec.widthMm)} × ${fmtMm(spec.heightMm)} mm — escolha o enquadramento abaixo para evitar distorção.`
+   220→              }
+   221→              level={ratioLevel}
+   222→            />
+   223→          </CardContent>
+   224→        </Card>
+   225→
+   226→        {/* Recorte da arte */}
+   227→        <Card>
+   228→          <CardHeader className="flex-row items-start justify-between space-y-0">
+   229→            <div className="min-w-0">
+   230→              <CardTitle className="flex items-center gap-2">
+   231→                <Scissors className="h-5 w-5 text-amber-600" aria-hidden />
+   232→                Recorte da arte
+   233→              </CardTitle>
+   234→              <CardDescription>
+   235→                A arte veio com fundo ao redor (foto de ambiente, mockup, mesa)? Recorte exatamente
+   236→                na borda do {spec.name.toLowerCase()} aqui dentro — sem precisar do Canva.
+   237→              </CardDescription>
+   238→            </div>
+   239→            {cropApplied && (
+   240→              <Badge className="shrink-0 bg-emerald-600 text-white hover:bg-emerald-600">
+   241→                Recortada
+   242→              </Badge>
+   243→            )}
+   244→          </CardHeader>
+   245→          <CardContent className="flex flex-col gap-4">
+   246→            {cropApplied && cropSize && (
+   247→              <p className="flex items-start gap-2 rounded-lg border border-emerald-600/40 bg-emerald-600/10 p-3 text-xs leading-relaxed text-emerald-700 dark:text-emerald-400">
+   248→                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+   249→                <span>
+   250→                  Recorte aplicado — a arte de trabalho agora tem {cropSize.w} × {cropSize.h} px e
+   251→                  o diagnóstico acima já reflete o resultado. Repita o recorte se precisar ajustar.
+   252→                </span>
+   253→              </p>
+   254→            )}
+   255→            <p className="text-xs leading-relaxed text-muted-foreground">
+   256→              1. Abra o recorte · 2. Toque em <strong className="font-semibold">Detectar bordas</strong> ou arraste
+   257→              as alças até a borda da peça · 3. Aplique. Faça o recorte ANTES da restauração com IA —
+   258→              assim a IA gasta resolução só na arte, não no fundo.
+   259→            </p>
+   260→            <div className="flex flex-wrap items-center gap-3">
+   261→              <Button
+   262→                variant={cropApplied ? "outline" : "default"}
+   263→                className={cn(!cropApplied && "bg-amber-600 text-white hover:bg-amber-700")}
+   264→                onClick={() => setCropOpen(true)}
+   265→                disabled={aiRestoring}
+   266→              >
+   267→                <Crop className="h-4 w-4" aria-hidden />
+   268→                {cropApplied ? "Recortar novamente" : "Recortar arte"}
+   269→              </Button>
+   270→              {cropApplied && (
+   271→                <Button variant="outline" onClick={onCropRevert} disabled={aiRestoring}>
+   272→                  <Undo2 className="h-4 w-4" aria-hidden />
+   273→                  Desfazer recorte
+   274→                </Button>
+   275→              )}
+   276→            </div>
+   277→            <CropDialog
+   278→              open={cropOpen}
+   279→              onOpenChange={setCropOpen}
+   280→              spec={spec}
+   281→              sourceCanvas={sourceCanvas}
+   282→              onApply={onCropApply}
+   283→            />
+   284→          </CardContent>
+   285→        </Card>
+   286→
+   287→        <Card>
+   288→          <CardHeader className="flex-row items-start justify-between space-y-0">
+   289→            <div className="min-w-0">
+   290→              <CardTitle className="flex items-center gap-2">
+   291→                <Sparkles className="h-5 w-5 text-amber-600" aria-hidden />
+   292→                Restauração com IA
+   293→              </CardTitle>
+   294→              <CardDescription>
+   295→                Para artes muito embaçadas ou de baixa resolução: a IA recria a imagem com bordas e
+   296→                textos nítidos, mantendo o layout, as cores e todos os elementos no lugar.
+   297→              </CardDescription>
+   298→            </div>
+   299→            {aiRecommended && (
+   300→              <Badge className="shrink-0 bg-amber-600 text-white hover:bg-amber-600">
+   301→                Recomendada
+   302→              </Badge>
+   303→            )}
+   304→          </CardHeader>
+   305→          <CardContent className="flex flex-col gap-4">
+   306→            {aiRecommended && (
+   307→              <p className="rounded-lg border border-amber-600/40 bg-amber-600/10 p-3 text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+   308→                <TriangleAlert className="mr-1.5 inline h-3.5 w-3.5" aria-hidden />
+   309→                Esta arte tem nitidez {analysis.sharpnessScore}/100 e {analysis.effectiveDpi} DPI
+   310→                efetivos — abaixo do ideal para impressão. O tratamento clássico ajuda, mas não
+   311→                recria detalhes que não existem no arquivo; a IA reconstrói esses detalhes.
+   312→              </p>
+   313→            )}
+   314→
+   315→            <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs leading-relaxed">
+   316→              <strong className="font-semibold">Importante:</strong> a IA recria a arte a partir da
+   317→              imagem original. Antes de imprimir, confira TODOS os textos, números de telefone,
+   318→              preços e logotipos na comparação ao lado — caracteres parecidos podem ser trocados.
+   319→              Se algo ficar diferente, desfaça e siga com o tratamento clássico.
+   320→            </p>
+   321→
+   322→            {aiError && (
+   323→              <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs leading-relaxed text-destructive">
+   324→                <TriangleAlert className="mr-1.5 inline h-3.5 w-3.5" aria-hidden />
+   325→                {aiError}
+   326→              </p>
+   327→            )}
+   328→
+   329→            {aiRestored && (
+   330→              <p className="flex items-start gap-2 rounded-lg border border-emerald-600/40 bg-emerald-600/10 p-3 text-xs leading-relaxed text-emerald-700 dark:text-emerald-400">
+   331→                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+   332→                <span>
+   333→                  Arte restaurada — o diagnóstico e o tratamento abaixo já usam a versão da IA.
+   334→                  Confira os textos na comparação ao lado antes de continuar.
+   335→                </span>
+   336→              </p>
+   337→            )}
+   338→
+   339→            <div className="flex flex-wrap items-center gap-3">
+   340→              <Button
+   341→                onClick={onAiRestore}
+   342→                disabled={aiRestoring || processing}
+   343→                className="bg-amber-600 text-white hover:bg-amber-700"
+   344→              >
+   345→                {aiRestoring ? (
+   346→                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+   347→                ) : (
+   348→                  <Sparkles className="h-4 w-4" aria-hidden />
+   349→                )}
+   350→                {aiRestoring ? "Restaurando… (10–30 s)" : aiRestored ? "Restaurar novamente" : "Restaurar com IA"}
+   351→              </Button>
+   352→              {aiRestored && (
+   353→                <Button variant="outline" onClick={onAiRevert} disabled={aiRestoring}>
+   354→                  <Undo2 className="h-4 w-4" aria-hidden />
+   355→                  Desfazer (voltar ao original)
+   356→                </Button>
+   357→              )}
+   358→            </div>
+   359→            <p className="text-xs leading-relaxed text-muted-foreground">
+   360→              A restauração usa sempre o arquivo original como base e leva de 10 a 30 segundos.
+   361→              Depois dela, todos os ajustes de tratamento continuam funcionando por cima do
+   362→              resultado.
+   363→            </p>
+   364→          </CardContent>
+   365→        </Card>
+   366→
+   367→        <Card>
+   368→          <CardHeader className="flex-row items-start justify-between space-y-0">
+   369→            <div>
+   370→              <CardTitle>Tratamento aplicado</CardTitle>
+   371→              <CardDescription>Ajuste fino em tempo real — a pré-visualização ao lado atualiza automaticamente.</CardDescription>
+   372→            </div>
+   373→            <Button variant="outline" size="sm" onClick={onResetSettings}>
+   374→              <RotateCcw className="h-4 w-4" aria-hidden />
+   375→              Automático
+   376→            </Button>
+   377→          </CardHeader>
+   378→          <CardContent className="flex flex-col gap-5">
+   379→            {/* Enquadramento (geometria — nunca distorce em cover/contain) */}
+   380→            <div className="rounded-lg border p-4">
+   381→              <Label className="text-sm font-semibold">Enquadramento no tamanho de corte</Label>
+   382→              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+   383→                Define como a arte ocupa o corte de {fmtMm(spec.widthMm)} × {fmtMm(spec.heightMm)} mm. Os modos
+   384→                "Preencher" e "Conter" preservam a proporção original — a imagem nunca fica esticada.
+   385→              </p>
+   386→              <RadioGroup
+   387→                value={fitMode}
+   388→                onValueChange={(v) => onFitModeChange(v as FitMode)}
+   389→                className="mt-3 grid gap-2"
+   390→                aria-label="Modo de enquadramento"
+   391→              >
+   392→                {FIT_OPTIONS.map((opt) => (
+   393→                  <Label
+   394→                    key={opt.value}
+   395→                    htmlFor={`fit-${opt.value}`}
+   396→                    className={cn(
+   397→                      "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors font-normal",
+   398→                      fitMode === opt.value
+   399→                        ? "border-amber-600 bg-amber-600/10 ring-1 ring-amber-600"
+   400→                        : "hover:bg-muted/60",
+   401→                    )}
+   402→                  >
+   403→                    <RadioGroupItem id={`fit-${opt.value}`} value={opt.value} className="mt-0.5" />
+   404→                    <span className="min-w-0 flex-1">
+   405→                      <span className="flex items-center gap-1.5 text-sm font-semibold">
+   406→                        {opt.icon}
+   407→                        {opt.label}
+   408→                      </span>
+   409→                      <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{opt.desc}</span>
+   410→                    </span>
+   411→                  </Label>
+   412→                ))}
+   413→              </RadioGroup>
+   414→              <p
+   415→                role={framing.ratioMatches ? undefined : fitMode === "stretch" ? "alert" : "status"}
+   416→                className={cn(
+   417→                  "mt-3 rounded-lg border p-3 text-xs leading-relaxed",
+   418→                  framing.ratioMatches
+   419→                    ? "border-border bg-muted/60 text-muted-foreground"
+   420→                    : fitMode === "stretch"
+   421→                      ? "border-destructive/40 bg-destructive/10 text-destructive"
+   422→                      : "border-amber-600/40 bg-amber-600/10 text-amber-700 dark:text-amber-400",
+   423→                )}
+   424→              >
+   425→                {!framing.ratioMatches && <TriangleAlert className="mr-1.5 inline h-3.5 w-3.5" aria-hidden />}
+   426→                {framingWarning}
+   427→              </p>
+   428→            </div>
+   429→
+   430→            {/* Nitidez */}
+   431→            <div className="rounded-lg border p-4">
+   432→              <div className="flex items-center justify-between">
+   433→                <Label htmlFor="sw-sharpen" className="text-sm font-semibold">
+   434→                  Máscara de contraste (unsharp mask)
+   435→                </Label>
+   436→                <Switch
+   437→                  id="sw-sharpen"
+   438→                  checked={settings.sharpenEnabled}
+   439→                  onCheckedChange={(v) => update({ sharpenEnabled: v })}
+   440→                />
+   441→              </div>
+   442→              <div className={cn("mt-4 grid gap-5", !settings.sharpenEnabled && "pointer-events-none opacity-50")}>
+   443→                <div>
+   444→                  <div className="mb-2 flex justify-between text-xs text-muted-foreground">
+   445→                    <span>Intensidade</span>
+   446→                    <span className="font-mono">{settings.sharpenAmount.toFixed(2)}</span>
+   447→                  </div>
+   448→                  <Slider
+   449→                    aria-label="Intensidade da nitidez"
+   450→                    value={[settings.sharpenAmount]}
+   451→                    min={0}
+   452→                    max={1.5}
+   453→                    step={0.05}
+   454→                    onValueChange={([v]) => update({ sharpenAmount: v })}
+   455→                  />
+   456→                </div>
+   457→                <div>
+   458→                  <div className="mb-2 flex justify-between text-xs text-muted-foreground">
+   459→                    <span>Raio (px @300 DPI)</span>
+   460→                    <span className="font-mono">{settings.sharpenRadius}px</span>
+   461→                  </div>
+   462→                  <Slider
+   463→                    aria-label="Raio da nitidez"
+   464→                    value={[settings.sharpenRadius]}
+   465→                    min={1}
+   466→                    max={4}
+   467→                    step={1}
+   468→                    onValueChange={([v]) => update({ sharpenRadius: v })}
+   469→                  />
+   470→                </div>
+   471→              </div>
+   472→            </div>
+   473→
+   474→            {/* Reforço de texto */}
+   475→            <div className="rounded-lg border p-4">
+   476→              <div className="flex items-center justify-between">
+   477→                <Label htmlFor="sw-text" className="text-sm font-semibold">
+   478→                  Reforço de textos finos (dilação morfológica)
+   479→                </Label>
+   480→                <Switch
+   481→                  id="sw-text"
+   482→                  checked={settings.textReinforceEnabled}
+   483→                  onCheckedChange={(v) => update({ textReinforceEnabled: v })}
+   484→                />
+   485→              </div>
+   486→              <div className={cn("mt-4 grid gap-5", !settings.textReinforceEnabled && "pointer-events-none opacity-50")}>
+   487→                <div>
+   488→                  <div className="mb-2 flex justify-between text-xs text-muted-foreground">
+   489→                    <span>Força do engrossamento</span>
+   490→                    <span className="font-mono">{Math.round(settings.textStrength * 100)}%</span>
+   491→                  </div>
+   492→                  <Slider
+   493→                    aria-label="Força do reforço de texto"
+   494→                    value={[settings.textStrength]}
+   495→                    min={0}
+   496→                    max={1}
+   497→                    step={0.05}
+   498→                    onValueChange={([v]) => update({ textStrength: v })}
+   499→                  />
+   500→                </div>
+   501→                <div className="grid gap-1.5">
+   502→                  <Label className="text-xs text-muted-foreground">Direção do reforço</Label>
+   503→                  <Select value={settings.textMode} onValueChange={(v) => update({ textMode: v as EnhanceSettings["textMode"] })}>
+   504→                    <SelectTrigger aria-label="Direção do reforço">
+   505→                      <SelectValue />
+   506→                    </SelectTrigger>
+   507→                    <SelectContent>
+   508→                      <SelectItem value="auto">Automático (detecta pelo fundo)</SelectItem>
+   509→                      <SelectItem value="dark-on-light">Texto escuro em fundo claro</SelectItem>
+   510→                      <SelectItem value="light-on-dark">Texto claro em fundo escuro</SelectItem>
+   511→                    </SelectContent>
+   512→                  </Select>
+   513→                </div>
+   514→              </div>
+   515→            </div>
+   516→          </CardContent>
+   517→        </Card>
+   518→      </div>
+   519→
+   520→      {/* Coluna direita: antes/depois */}
+   521→      <div className="flex flex-col gap-6">
+   522→        <Card className="flex-1">
+   523→          <CardHeader>
+   524→            <CardTitle>Antes × Depois</CardTitle>
+   525→            <CardDescription>
+   526→              Comparação no tamanho final de impressão ({preparedCanvas.width} × {preparedCanvas.height} px @ 300 DPI).
+   527→            </CardDescription>
+   528→          </CardHeader>
+   529→          <CardContent className="grid gap-4">
+   530→            <figure className="relative">
+   531→              <figcaption className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+   532→                {aiRestored && preAiPrepared
+   533→                  ? "Antes da IA (reamostrado)"
+   534→                  : cropApplied
+   535→                    ? "Após o recorte (reamostrada)"
+   536→                    : "Original (reamostrado)"}
+   537→              </figcaption>
+   538→              <div className="overflow-hidden rounded-lg border bg-[repeating-conic-gradient(#f4f4f5_0%_25%,#ffffff_0%_50%)] bg-[length:16px_16px]">
+   539→                <CanvasView
+   540→                  canvas={aiRestored && preAiPrepared ? preAiPrepared : preparedCanvas}
+   541→                  ariaLabel="Arte original reamostrada"
+   542→                />
+   543→              </div>
+   544→            </figure>
+   545→            <figure className="relative">
+   546→              <figcaption className="mb-1.5 flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-wide text-amber-600">
+   547→                Tratada para impressão
+   548→                {cropApplied && <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">Recortada</Badge>}
+   549→                {aiRestored && <Badge className="bg-amber-600 text-white hover:bg-amber-600">Restaurada por IA</Badge>}
+   550→              </figcaption>
+   551→              <div className="relative overflow-hidden rounded-lg border bg-[repeating-conic-gradient(#f4f4f5_0%_25%,#ffffff_0%_50%)] bg-[length:16px_16px]">
+   552→                {enhancedCanvas ? (
+   553→                  <CanvasView canvas={enhancedCanvas} ariaLabel="Arte tratada" />
+   554→                ) : (
+   555→                  <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">Processando…</div>
+   556→                )}
+   557→                {processing && (
+   558→                  <div className="absolute inset-0 flex items-center justify-center gap-2 bg-background/60 text-sm font-medium backdrop-blur-[2px]">
+   559→                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+   560→                    Processando…
+   561→                  </div>
+   562→                )}
+   563→              </div>
+   564→            </figure>
+   565→          </CardContent>
+   566→        </Card>
+   567→        <Button size="lg" onClick={onContinue} disabled={!enhancedCanvas || processing || aiRestoring} className="bg-amber-600 text-white hover:bg-amber-700">
+   568→          Montar folha A4
+   569→          <ArrowRight className="h-5 w-5" aria-hidden />
+   570→        </Button>
+   571→      </div>
+   572→    </div>
+   573→  );
+   574→}
+   575→
