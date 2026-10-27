@@ -155,3 +155,20 @@ Work Log:
 
 Stage Summary:
 - A tela "Recortar a arte" foi reconstruída de zero como Etapa 2 do fluxo (agora 5 etapas): recorte manual com quadro/alças, rotação 90° (cartão em pé → deitado, panfleto deitado → em pé), preview fit-to-view da arte inteira, diagnóstico de DPI do recorte e persistência ao navegar. O tratamento/preview/exportação continuam idênticos e agora consomem a arte recortada/girada. Melhoria do Antes × Depois sticky também restaurada.
+
+---
+Task ID: 10
+Agent: main (Z.ai)
+Task: Vistoria completa do projeto a pedido do usuário (medo de novas perdas de função) + investigação específica da memória do usuário sobre "panfleto caber certinho na A4 mesmo que precisasse diminuir o panfleto". SEM mudanças de comportamento.
+
+Work Log:
+- Git: árvore limpa, tudo commitado (10 commits, sem stash, só main). Nenhuma função em risco imediato de perda não-versionada.
+- Auditoria completa dos fontes: page.tsx (5 etapas, estados fitMode/bottomGuardMm/cutLine/cropSession), constants.ts (cartão 95×56 colado; panfleto 100×144 two-cut), imposition.ts (two-cut com guarda adaptativa, CUT_LINE 2px #c8c8c8), crop.ts, enhance.ts, analysis.ts, pdf.ts, todos os painéis, step-nav, canvas-view — TODOS íntegros e alinhados ao worklog das Tasks 1–9.
+- Lint limpo (eslint .); dev server saudável (HTTP 200); E2E smoke test com agent-browser no fluxo do PANFLETO: upload → recorte (botões 90° presentes) → tratamento → folha 4 peças → exportação (checklist "2 cortes: vertical a 105 mm, horizontal a 147,3 mm; ≈3,5 mm lat × 2,7 mm vert"; slider da guarda; switch linha de corte). Console sem erros.
+- ACHADO 1 (fóssil): src/components/print/crop-dialog.tsx (704 linhas) é código ÓRFÃO do recorte ANTIGO — ninguém importa; referencia 9 funções que não existem mais em crop.ts (cropPresets, detectArtworkBounds, fitRectWithRatio, moveRect, resizeRect, clampRect, rotateCanvas, cropEffectiveDpi, CropHandle) → 27 erros de tsc. NÃO quebra o app nem o build (next.config tem typescript.ignoreBuildErrors: true) — só polui o type-check. Documenta recursos do recorte antigo que se perderam: trava de proporção/presets, detecção automática de bordas da arte, zoom 6× com pan e roda do mouse.
+- ACHADO 2 (IA pela metade): src/lib/print/ai-restore.ts + src/app/api/enhance-ai/route.ts + scripts/test_ai_restore.ts existem e estão completos (7 tamanhos fixos, letterbox, prompt anti-alucinação), mas NENHUM componente chama restoreWithAI — não há botão "Restaurar com IA" na UI. Backend pronto, integração ausente.
+- INVESTIGAÇÃO PANFLETO×A4: varrido o histórico git completo de constants.ts e imposition.ts (rg em git log -p por reduzir/diminuir/escala/shrink/scale/caber) — NUNCA existiu lógica commitada de reduzir o panfleto para caber. O panfleto sempre foi 100×144 mm; começou com gapMode "auto-border" (bordas brancas ≈3,3 mm lat × 3,0 mm vert em volta de cada peça — Task 1, "cabia certinho") e mudou para "two-cut" na Task 4 (a pedido do próprio usuário, p/ 2 cortes). Números atuais (guarda 3,0 mm): margens externas 1,5 mm lat × 0,6 mm topo / 3,0 mm base; folga de corte 3,5 mm lat × 2,7 mm vert. Interpretação mais provável da memória do usuário: (a) as bordas confortáveis da era auto-border sumiram quando o two-cut apertou as bordas externas, e/ou (b) a escolha de 100×144 (vs. ¼ A4 = 105×148,5) já ERA o "diminuir o panfleto para caber". Matemática de referência para o retorno do "encaixe certinho": com 3 mm de margem externa em todos os lados + guarda 3 mm, a peça precisa cair para ≈98×141 mm (−2%), sobrando ≈4 mm de folga de corte por peça.
+- Nenhuma alteração de código nesta task (vistoria read-only). Únicos arquivos novos: tool-results/* (artefatos de leitura).
+
+Stage Summary:
+- Projeto saudável: todas as funções das Tasks 1–9 confirmadas no código e em execução E2E; git 100% commitado. Pendências identificadas para os próximos passos: (1) reimplementar o "encaixe do panfleto na A4" (redução automática da peça p/ margens externas confortáveis, integrada ao two-cut sem tocar no resto do pipeline); (2) remover o fóssil crop-dialog.tsx; (3) ligar a restauração por IA à UI (botão no tratamento) — backend já pronto.
