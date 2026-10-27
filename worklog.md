@@ -208,3 +208,18 @@ Work Log:
 Stage Summary:
 - Panfleto agora sai 98×142 mm com 3,5 mm (lat.) e ≈3,0 mm (topo/base) de branco nas bordas da folha — exatamente a geometria que o usuário imprimiu e aprovou. Impressão no modo normal (sem borderless) é segura; guarda de base padrão 3,0 mm mantida (slider continua para impressoras diferentes); recorte, rotação, tratamento, linha de corte e exportação intactos.
 - Pendências herdadas da vistoria (Task 10): remover fóssil crop-dialog.tsx; ligar a restauração por IA à UI (backend pronto).
+
+---
+Task ID: 12
+Agent: main (Z.ai)
+Task: Auditoria geral do código (pós-validação do usuário: "deu certinho, saiu perfeito panfleto na A4 sem morder nada") — verificar estado atual do app.
+
+Work Log:
+- Validação de campo registrada: o usuário imprimiu o panfleto do app (geometria Task 11) e saiu perfeito na A4, sem mordida em nenhum lado — a geometria 98×142 mm com margens ≈3,5 lat / ≈3,0 topo-base está HOMOLOGADA na impressora real.
+- Revisão de todos os módulos src/ (leitura completa): constants.ts (panfleto 98×142 + comentários), imposition.ts (two-cut/glued/guarda/cutLine íntegros), crop.ts (puro, rotação 90° + remapeamento de retângulo), pdf.ts (jsPDF DCTDecode + pdf-lib FlateDecode), ai-restore.ts (plan→letterbox→restore→recrop), page.tsx (orquestração, debounce 140 ms, sessão de recorte persistente), export-panel.tsx (slider guarda 0–5 mm passo 0,25, checklist "modo normal validado"), preview-panel.tsx (zoom 1:1 do fio de corte).
+- Saúde: build Next.js 16.1.3 OK (13,1 s, rotas /, /api, /api/enhance-ai); ESLint 0 erros 0 warnings; zero TODO/FIXME; git limpo (apenas tool-results/ não trackeado).
+- Grafo de dependências: nenhum arquivo importa crop-dialog.tsx (704 linhas — fóssil substituído pelo CropPanel); nenhum arquivo importa ai-restore.ts (backend completo + API /api/enhance-ai pronta, falta UI); db.ts (Prisma) e api/route.ts ("Hello world") são scaffolding do template, sem uso no fluxo.
+- API /api/enhance-ai revisada: prompt anti-alucinação de texto, whitelist de 7 tamanhos, erros 400/502/500 tratados — pronta para produção.
+
+Stage Summary:
+- App 100% funcional e homologado em impressora real; Tasks 1–11 confirmadas no código. Dívida técnica mapeada: (1) remover crop-dialog.tsx (−704 linhas mortas); (2) ligar "Restaurar com IA" à UI da etapa 3 (backend 100% pronto, ~40 linhas de integração); (3) opcional: limpar scaffolding Prisma/api raiz. Nenhuma mudança de código nesta task (auditoria read-only).
