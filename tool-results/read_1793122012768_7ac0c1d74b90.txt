@@ -1,0 +1,211 @@
+     1→# Worklog
+     2→
+     3→---
+     4→Task ID: 1
+     5→Agent: main (Z.ai)
+     6→Task: Build "ImpressA4" — print-shop web app (React/Next.js 16 + Tailwind + Canvas + jsPDF) that enhances customer artwork and imposes A4 sheets at 300 DPI.
+     7→
+     8→Work Log:
+     9→- Initialized fullstack environment via init script (Next.js 16, shadcn/ui, Tailwind 4).
+    10→- Installed jspdf and pdf-lib (required for high-res PDF export, user-specified libraries).
+    11→- Implemented modular client-side libs under src/lib/print:
+    12→  - constants.ts: product specs (card 90×54mm, flyer 100×144mm), A4 2480×3508px @300DPI, mm↔px math.
+    13→  - analysis.ts: effective DPI, Laplacian-variance sharpness score, thin-text heuristic (gradient attenuation after 1px blur), mean luminance; pure-JS separable box blur (no ctx.filter dependency).
+    14→  - enhance.ts: preparePrintCanvas (resample to exact cut size, white bg), unsharpMaskInPlace (amount/radius/threshold), reinforceThinTextInPlace (separable 3×3 min/max morphology + edge mask blend, dark-on-light vs light-on-dark), recommendSettings.
+    15→  - imposition.ts: integer-position grid (Bresenham-style gap distribution), cards 2×5 glued centered; flyer 2×2 with computed max white border (≈3.3mm lat × 3mm vert), renderImposedSheet, describeLayout.
+    16→  - pdf.ts: JPEG path via jsPDF (DCTDecode), PNG path via pdf-lib (FlateDecode, truly lossless — jsPDF v4 re-encodes PNG to JPEG), A4 exact 595.28×841.89pt, metadata, blob download.
+    17→- UI: 4-step flow (UploadPanel, EnhancePanel, PreviewPanel, ExportPanel) + StepNav + CanvasView (copies canvas to avoid prop mutation), page.tsx orchestrator with debounced re-enhancement, layout.tsx pt-BR metadata + next-themes dark mode. Amber accent, no blue/indigo, sticky footer, responsive.
+    18→- Fixed lint errors (react-hooks/set-state-in-effect, react-hooks/immutability) and a className={false} console warning.
+    19→- E2E verified with agent-browser + generated test art (blurry, low-res, thin text):
+    20→  - Analysis correctly reported 14/100 sharpness, 198 DPI effective, background light.
+    21→  - Card PDF: page 210.0×297.0mm, image 2480×3508 (exactly 300 DPI), 10 glued cards 2×5 centered (visual render check).
+    22→  - Flyer PDF: gutters measured pixel-exact: 3.39mm lateral / 3.05mm vertical white borders, cut size 100.0×143.9mm per piece.
+    23→  - PNG export verified as FlateDecode (lossless).
+    24→  - Mobile 390px + dark mode + sticky footer verified; console clean after fixes.
+    25→
+    26→Stage Summary:
+    27→- App fully functional and verified end-to-end. Deliverable: Next.js app in /home/z/my-project (src/lib/print + src/components/print + src/app/page.tsx). All processing client-side; no database needed.
+    28→
+    29→---
+    30→Task ID: 2
+    31→Agent: main (Z.ai)
+    32→Task: Alterar a dimensão do Cartão de Visita de 90×54 mm para 95×56 mm, a pedido do usuário.
+    33→
+    34→Work Log:
+    35→- Editado src/lib/print/constants.ts: cartao-visita widthMm 90→95, heightMm 54→56 (fonte única da matemática do app).
+    36→- Editado src/components/print/export-panel.tsx: instrução de guilhotina agora dinâmica via fmtMm(spec.heightMm) em vez de "54 mm" fixo.
+    37→- Novo layout derivado automaticamente: célula 1122×661 px @300DPI, grade 2×5 colada centralizada, margem externa 118px (10,0 mm lat.) × 102px (8,6 mm vert.).
+    38→- E2E verificado com agent-browser + arte de teste 1122×661 px (scripts/make_test_card.py): UI exibe 95×56 mm, diagnóstico "300 DPI efetivos", preview 10 unidades com margens corretas, checklist "corte cada tira a cada 56 mm".
+    39→- PDF exportado e validado (scripts/verify_pdf.py): página 210,00×297,00 mm exata, imagem 2480×3508 px = 300,0×300,0 DPI, DCTDecode (JPEG q95), 924 KB. Lint limpo, console sem erros.
+    40→
+    41→Stage Summary:
+    42→- Cartão de Visita agora 9,5 × 5,6 cm, 10 por folha A4 (2×5, coladas). Panfleto inalterado (100×144 mm). Nenhuma outra parte do pipeline exigiu ajuste — arquitetura centralizada em constants.ts funcionou como projetado.
+    43→
+    44→---
+    45→Task ID: 3
+    46→Agent: main (Z.ai)
+    47→Task: Responder dúvida do usuário sobre distorção ao dimensionar para cartão/panfleto e corrigir o comportamento.
+    48→
+    49→Work Log:
+    50→- Diagnóstico: preparePrintCanvas usava drawImage(source, 0, 0, w, h) — esticava artes com proporção diferente do produto.
+    51→- enhance.ts: adicionado FitMode (cover/contain/stretch), framingInfo() comparando proporção da arte vs produto, preparePrintCanvas com recorte central (cover) ou margens brancas (contain) — ambos sem distorção; stretch mantido como legado explícito.
+    52→- page.tsx: sourceRef com canvas-fonte, estado fitMode (default cover), handleFitModeChange re-prepara geometria (efeito com debounce re-trata pixels e remonta a folha).
+    53→- enhance-panel.tsx: métrica "Proporção da arte" (1.00:1 vs 1.70:1, nível Crítico/Atenção/OK), RadioGroup de enquadramento com 3 opções e aviso contextual dinâmico (recorte ≈X% da altura/largura; bordas brancas; vermelho + role=alert no stretch).
+    54→- Bug interno corrigido durante E2E: eixos do cover em framingInfo estavam invertidos (arte quadrada no cartão recorta altura, não largura) — validado contra a matemática real do drawImage e contra o preview.
+    55→- E2E com arte quadrada 800×800 (scripts/make_test_square.py): diagnóstico correto, avisos por modo corretos (cover 41% altura, contain barras laterais, stretch ≈70% com alerta vermelho), círculos perfeitamente redondos no preview (prova anti-distorção), PDF exportado e validado (A4 exato, 2480×3508 px, 300.0 DPI). Lint limpo, console sem erros.
+    56→
+    57→Stage Summary:
+    58→- Resposta à dúvida: arte na proporção correta nunca distorceu; proporção diferente distorcia (stretch legado) — agora o padrão é cover (recorte central sem distorção), com contain e stretch opcionais e avisos quantificados na UI.
+    59→
+    60→---
+    61→Task ID: 4
+    62→Agent: main (Z.ai)
+    63→Task: Layout do panfleto exato para 2 cortes de guilhotina (1 vertical + 1 horizontal no centro do A4), mantendo 3,5 mm de borda branca por peça na linha de corte.
+    64→
+    65→Work Log:
+    66→- Geometria: 3,5 mm em TODOS os lados das 4 peças exigiria 214×302 mm (não cabe no A4). Solução: folga crítica garantida nas linhas de corte (centro da folha: 105 × 148,5 mm); folga restante nas bordas externas (sem lâmina): 1,5 mm lat / 1,0 mm vert.
+    67→- constants.ts: gapMode ganhou "two-cut"; panfleto atualizado com spacingNote explicando o fluxo de 2 cortes.
+    68→- imposition.ts: CUT_CLEARANCE_PX = mmToPx(3.5); twoCutPositions() posiciona cada peça a 3,5 mm do centro do eixo; computeLayout com branch two-cut (glued e auto-border mantidos); gapX/gapY agora = vão total entre peças; describeLayout com texto de 2 cortes.
+    69→- preview-panel.tsx: texto de espaçamento do two-cut (corte no centro + branco por peça); export-panel.tsx: instrução de corte "apenas 2 cortes... 105 mm e 148,5 mm das bordas".
+    70→- E2E: panfleto com arte de teste — UI correta; medição pixel-exata via eval no canvas 2480×3508: vão lateral [101.44→108.47 mm] centrado em 104.96 (≈3.5 mm/lado), vão vertical centrado em 148.5 mm exato (3.47 mm/lado), margens externas 1.0–1.6 mm. PDF do panfleto validado (A4 exato, 2480×3508 px, 300.0 DPI, 405 KB). Lint limpo, console sem erros.
+    71→
+    72→Stage Summary:
+    73→- Panfleto agora sai pronto para o fluxo de 2 cortes na guilhotina com 3,5 mm de borda por peça na linha de corte. Cartão (colado 2×5) inalterado.
+    74→
+    75→---
+    76→Task ID: 5
+    77→Agent: main (Z.ai)
+    78→Task: Explicar por que a impressão caseira corta o rodapé da arte (observação do usuário sobre 214×302 mm) e avisar isso na UI.
+    79→
+    80→Work Log:
+    81→- Diagnóstico confirmado com os números: quem apara o rodapé não é o app/guilhotina — é a margem não imprimível da impressora. PDF íntegro (arte completa 1:1 no arquivo). Layout antigo (auto-border) tinha ~3,0–3,4 mm de branco externo: absorvia margens laterais/superiores (3–5 mm) mas a base da impressora tem margem maior (5 mm+) e invadia a arte. Layout novo (two-cut): folga vertical total de 9 mm → 7 mm vão para a faixa central do corte (3,5+3,5 mm), sobrando só 1,0 mm externo topo/base (e 1,5 mm lateral) — sem "sem margens" na impressora, as bordas externas da arte podem ser aparadas.
+    82→- export-panel.tsx: novo item condicional (gapMode === "two-cut") no checklist: ativar "Sem margens" (borda a borda); sem ela a margem não imprimível (maior na base) apara as bordas externas — rodapé dos panfletos de baixo é o mais afetado; cortes centrais seguros com 3,5 mm garantidos.
+    83→- E2E agent-browser: fluxo completo panfleto (upload test-flyer.png → análise → folha → exportação); novo aviso visível no checklist; PDF exportado e validado (210,00×297,00 mm, 2480×3508 px = 300,0 DPI, DCTDecode, 496 KB); console sem erros. Lint limpo. Screenshot scripts/shot-12-printer-tip.png.
+    84→
+    85→Stage Summary:
+    86→- Observação do usuário explicada e materializada na UI: o app não corta a arte; a margem não imprimível da impressora apara as bordas externas (base pior), e o checklist agora orienta ativar "Sem margens" + manter escala 100%.
+    87→
+    88→---
+    89→Task ID: 6
+    90→Agent: main (Z.ai)
+    91→Task: Usuário imprimiu com escala 100% + borderless e ainda perdeu ~2 mm na base da folha; sugeriu reduzir a borda de corte de 3,5 para 3,4 mm. Responder com a matemática e corrigir de verdade.
+    92→
+    93→Work Log:
+    94→- Matemática da proposta do usuário: reduzir a folga de corte de 3,5 para 3,4 mm libera só (9−6,8)/2 = 1,1 mm externo vertical (+0,1 mm) — não cobre a mordida de ~2 mm. A alavanca real é a DISTRIBUIÇÃO: a mordida é só na base, então a folga vertical deve se concentrar lá.
+    95→- imposition.ts: CUT_CLEARANCE_Y_PX = mmToPx(3) (35 px ≈ 3,0 mm, eixo Y) e PRINTER_BOTTOM_GUARD_PX = mmToPx(2) (24 px ≈ 2,0 mm de branco extra na base); nova twoCutRows() posiciona topo com folga normal e base com a guarda (fallback simétrico se não couber); CUT_CLEARANCE_PX (3,5 mm) mantido no eixo X; ImpositionLayout ganhou outerBottomPx; describeLayout atualizado (linhas de corte = meio da faixa branca).
+    96→- Layout resultante (px @300 DPI): x1=18, faixa X=82, x2=1281 | y1=12, faixa Y=70, y2=1783, base=24. Corte vertical a ~105 mm da lateral; horizontal a ~148 mm do topo (0,5 mm acima do centro; cortando no 148,5 ainda sobram 2,5 mm de branco). Eixo X inalterado (3,5 mm/peça) pois laterais comprovadamente ok.
+    97→- preview-panel.tsx: cortes exibidos a partir do layout (105 mm / 148 mm, meio da faixa); margem externa agora mostra topo E base com explicação da guarda. export-panel.tsx: instrução de 2 cortes derivada de computeLayout (fonte única) e aviso de impressora atualizado ("mesmo com Sem margens, a base tem ~2 mm não imprimíveis — o layout já reserva esse branco"). constants.ts: spacingNote atualizado.
+    98→- Novo script scripts/measure_two_cut.py: extrai as 4 artes do PDF renderizado a 300 DPI (cabeçalho laranja + faixa escura) e imprime todas as margens em mm.
+    99→- E2E agent-browser: fluxo completo panfleto; medição pixel-exata no canvas 2480×3508: esq/dir 1,52 · topo 1,02 · base 2,03 · faixaX 6,94 (3,47/peça) · faixaY 5,93 (2,96/peça) · peça 99,99×144,02 · cortes em 104,94/147,95 mm. PDF validado (A4 exato, 300,0 DPI, DCTDecode, 490 KB) e remedido do PDF renderizado: mesmos valores (±0,1 mm de arredondamento do rasterizador). Lint limpo, console sem erros. Screenshot scripts/shot-13-bottom-guard.png.
+   100→
+   101→Stage Summary:
+   102→- Em vez de 3,4 mm (que daria só +0,1 mm), o layout agora concentra a folga vertical na base: 2,0 mm de branco absorvem a mordida da impressora mesmo em borderless, rodapé dos panfletos de baixo protegido; tolerância de corte vertical caiu de 3,5 para ~3,0 mm por peça (ainda ±3 mm para a lâmina). Knob ajustável: PRINTER_BOTTOM_GUARD_PX.
+   103→
+   104→---
+   105→Task ID: 7
+   106→Agent: main (Z.ai)
+   107→Task: Usuário testou a guarda de 2,0 mm e ainda perdeu ~1 mm de arte na base ("mordeu só um pouquinho"); pediu continuar no caminho do ajuste. Tornar a compensação definitiva (ajustável na UI) em vez de iterative hardcode.
+   108→
+   109→Work Log:
+   110→- Diagnóstico: com guarda de 2,0 mm a arte ainda foi mordida ~1 mm → zona não imprimível real da impressora do usuário na base ≈ 3 mm. Novo round de hardcode ia exigir outro ciclo de teste; cada impressora tem uma margem diferente — a solução certa é EXPOVER o ajuste.
+   111→- imposition.ts: duasCutRows agora é ADAPTATIVA (prioridades: 1. guarda escolhida, clampada à folga; 2. topo mínimo de 0,5 mm — mmToPx(0.5)=6 px; 3. resto vira folga de corte, máx. 3,5 mm/peça igual ao eixo X). Removidas CUT_CLEARANCE_Y_PX e PRINTER_BOTTOM_GUARD_PX; novas exportações DEFAULT_BOTTOM_GUARD_MM = 3 e MAX_BOTTOM_GUARD_MM = 5 (limite do slider). Nova interface ImpositionOptions { bottomGuardMm?: number }; computeLayout/renderImposedSheet/describeLayout recebem options. Cabeçalho do arquivo reescrito.
+   112→- page.tsx: estado bottomGuardMm (default 3) — persiste entre resets de arte (é propriedade da impressora); renderImposedSheet e computeLayout recebem { bottomGuardMm } (deps do efeito/memo atualizadas); ExportPanel recebe valor + setter.
+   113→- export-panel.tsx: props bottomGuardMm/onBottomGuardChange; computeLayout com a opção; NOVO bloco "Ajuste para a sua impressora" (só two-cut): slider 0–5 mm passo 0,25 com valor exibido ("3,00 mm de branco na base") e explicação (subir em passos de 0,5 mm se a arte ainda for mordida; topo mantém ≥0,5 mm; linhas de corte acompanham sozinhas); aviso borderless reescrito (base tem de 1 a 3 mm não imprimíveis, varia por modelo). constants.ts: spacingNote genérico (reserva ajustável).
+   114→- Distribuição resultante com default 3,0 mm (px @300 DPI): topo 7 (0,6 mm) · folga de corte Y 2×32 (2,7 mm/peça) · base 35 (3,0 mm). Eixo X inalterado (1,5/3,5/1,5). Corte horizontal fica a 147,3 mm do topo.
+   115→- E2E agent-browser: fluxo completo panfleto; slider testado via teclado (3,00→3,75→3,00), rótulo e checklist reagem em tempo real (com 3,75: corte a 146,9 mm, folga vert. 2,4 mm/peça); PDF re-exportado e validado (1 página — contagem "2" do verify_pdf.py é artefato do regex que casa /Pages também; A4 exato, 300,0 DPI, DCTDecode, 490 KB); console sem erros; lint limpo. Screenshots scripts/shot-13-guard-default.png, shot-14-guard-slider-375.png, shot-15-guard-final.png.
+   116→
+   117→Stage Summary:
+   118→- Fim do ciclo teste-e-erro: o usuário agora ajusta a reserva da base (0–5 mm) na própria tela de exportação, com feedback instantâneo nas instruções de corte; default 3,0 mm já cobre a mordida de ~3 mm medida na impressora dele. Qualquer impressora futura é caso de slider, não de código.
+   119→
+   120→---
+   121→Task ID: 8
+   122→Agent: main (Z.ai)
+   123→Task: Linha de corte fina (fio cinza-claro quase invisível) na borda de cada peça, para artes com fundo branco/claro em que o operador não enxerga onde cortar na guilhotina (cartões saíam com tamanhos aleatórios).
+   124→
+   125→Work Log:
+   126→- imposition.ts: novas constantes exportadas CUT_LINE_WIDTH_PX = 2 (≈0,17 mm @ 300 DPI) e CUT_LINE_COLOR = "#c8c8c8"; ImpositionOptions ganhou cutLine?: boolean; renderImposedSheet desenha strokeRect alinhado a pixels inteiros 100% DENTRO de cada peça (tamanho de corte continua exato) — em peças coladas os traços vizinhos formam fio duplo de 4 px sobre a linha de vinco; describeLayout menciona a linha quando ativa.
+   127→- page.tsx: estado cutLine (default false, persiste entre artes como bottomGuardMm/fitMode); renderImposedSheet recebe { bottomGuardMm, cutLine } (dep adicionada); props cortadas para PreviewPanel e ExportPanel.
+   128→- preview-panel.tsx: novo bloco "Linha de corte fina" com Switch abaixo da folha + NOVA AMPLIAÇÃO 1:1 (canvas 400×250 do canto da primeira peça via useEffect/drawImage) porque o fio de 0,17 mm é invisível na folha reduzida — visível só quando o switch está ON.
+   129→- export-panel.tsx: bloco "Linha de corte para fundos claros" (Switch, todos os produtos) + item dinâmico no checklist: variante glued ("corte exatamente sobre a linha — cartão sai com 95 × 56 mm; linhas também marcam o limite do bloco para aparar bordas externas") e variante two-cut ("siga no meio da faixa branca — linhas marcam a borda exata da arte").
+   130→- E2E agent-browser com nova arte branca upload/test-card-branco.png (scripts/make_test_card_white.py, conteúdo no miolo, cantos brancos):
+   131→  - Switch OFF: 0 px cinza nas janelas sondadas (baseline limpa).
+   132→  - Switch ON (cartão): fio #c8c8c8 pixel-exato em x{118,119}, x{1238..1241} (fio duplo), y{102,103}, y{761..764}, base y{3405,3406}; interior da arte e margens externas 255 branco; ampliação 1:1 mostra o fio (px 30-31 = 200,200,200).
+   133→  - Sincronia: switch ON/OFF no export reflete no preview (estado único no page.tsx); OFF volta a 0 px cinza.
+   134→  - Panfleto two-cut: fio presente na borda direita da peça 1 (x 1197-1198) e topo (y 7-8) — layout não colado também suportado; checklist com texto da variante two-cut correto.
+   135→  - PDF exportado validado (scripts/verify_cutline_pdf.py): página 210,00 × 297,00 mm; render 300 DPI; fio presente nas 4 bordas das 10 peças (janela ±3 px, ≥2 px cinza cada), interiores/margens brancos, amostra (202,202,202) ≈ alvo.
+   136→  - Console sem erros; lint limpo. Screenshots scripts/shot-16-cutline-preview.png, shot-17-cutline-export.png.
+   137→
+   138→Stage Summary:
+   139→- Novo recurso "Linha de corte fina": fio cinza-claro de ≈0,17 mm na borda de cada peça, ativável no preview e na exportação (estado compartilhado), com ampliação 1:1 para conferência. Resolve o corte aleatório de cartões de fundo branco na guilhotina; o tamanho de corte permanece exato (o fio é impresso dentro da medida) e some quase totalmente no produto final.
+   140→
+   141→---
+   142→Task ID: 9
+   143→Agent: main (Z.ai)
+   144→Task: Usuário reportou que a função de recorte ("Recortar a arte") sumiu após a atualização da linha de corte. Investigação: o código do recorte + rotação NÃO existia mais no repositório nem no histórico do git (só sobrou o ícone Crop no enhance-panel) — as mudanças da sessão anterior se perderam. Reconstrução completa da feature com todas as melhorias pedidas.
+   145→
+   146→Work Log:
+   147→- Diagnóstico: grep por recortar/crop/girar/rotate em src/ só encontrou ícones lucide; git log (9 commits) não contém nenhuma alteração de recorte — a feature foi perdida entre sessões (nunca commitada). Reportado ao usuário como "ficou para trás" e reconstruída.
+   148→- NOVO src/lib/print/crop.ts: funções puras rotateCanvas90 (cw/ccw, sem interpolação), rotateRect (remapeia o quadro junto com a rotação), cropCanvas (cópia 1:1), isFullRect, sessionHasCrop, sessionsEqual, effectiveDpi; tipos CropRect/CropSession.
+   149→- NOVO src/components/print/crop-panel.tsx (Etapa 2 — "Recortar a arte"): visualização fit-to-view (max-w/max-h, a arte INTEIRA sempre visível — corrige o feedback antigo do quadro pequeno); quadro arrastável (mover) com 8 alças (cantos+bordas) posicionadas em % (acompanham o CSS); drag por listeners na window (mouse/toque/eventos sintéticos); botões 90° à esquerda/direita (a rotação remapeia o quadro para o mesmo conteúdo); Resetar; feedback ao vivo (área px, DPI efetivos min-axe com badge OK/Atenção/Crítico, aviso de proporção ≠ produto); botão contextual "Aplicar recorte e continuar" / "Continuar sem recortar".
+   150→- page.tsx: fluxo agora tem 5 ETAPAS (Upload → Recorte & Rotação → Tratamento → Pré-visualização → Exportar); rawSourceRef (arquivo original, imutável) separado de sourceRef (fonte do pipeline); cropSession (rascunho, persiste ao navegar) + cropAppliedRef (sessão já consumida); handleCropApply aplica/reverte/reusa o recorte com comparação exata (evita re-análise redundante); recorte reaplica analyzeArtwork+recommendSettings+preparePrintCanvas sobre a arte recortada.
+   151→- step-nav.tsx: 5 etapas (ícone Crop em "Recorte & Rotação"), grid lg:grid-cols-5.
+   152→- enhance-panel.tsx: coluna Antes × Depois restaurada como sticky (self-start lg:sticky lg:top-20) — acompanha a rolagem durante os ajustes (segundo feedback antigo que também havia se perdido).
+   153→- BUG REAL encontrado no E2E: pointerdown na alça borbulhava para o quadro, registrando um segundo drag "move" que sobrescrevia o redimensionamento (o quadro não mudava). Corrigido com stopPropagation no onPointerDown das alças.
+   154→- E2E agent-browser com upload/test-card-ambiente-pe.png (cartão em pé dentro de ambiente teal, scripts/make_test_ambiente.py): giro cw → 1400×1200 "Paisagem · Girada 90°"; drags sintéticos SE+NW posicionaram o quadro em (139, 270, 1122×661) — box em % pixel-exato (9,93/22,5/80,14/55,08) e área "1122 × 661 px"; aplicar → tratamento com 0 pixels teal e laranja #b45309 exatamente no lado previsto pela rotação; Voltar 2× → sessão de recorte persistida (mesmo quadro); concluir fluxo → PDF validado (scripts/verify_crop_pdf.py): A4 exato, 10 peças = cartão girado+recortado (laranja à direita + banda escura), 0 pixels de ambiente; regressão "Continuar sem recortar" OK (arte normal segue 1:1); sticky presente; console sem erros; lint limpo.
+   155→
+   156→Stage Summary:
+   157→- A tela "Recortar a arte" foi reconstruída de zero como Etapa 2 do fluxo (agora 5 etapas): recorte manual com quadro/alças, rotação 90° (cartão em pé → deitado, panfleto deitado → em pé), preview fit-to-view da arte inteira, diagnóstico de DPI do recorte e persistência ao navegar. O tratamento/preview/exportação continuam idênticos e agora consomem a arte recortada/girada. Melhoria do Antes × Depois sticky também restaurada.
+   158→
+   159→---
+   160→Task ID: 10
+   161→Agent: main (Z.ai)
+   162→Task: Vistoria completa do projeto a pedido do usuário (medo de novas perdas de função) + investigação específica da memória do usuário sobre "panfleto caber certinho na A4 mesmo que precisasse diminuir o panfleto". SEM mudanças de comportamento.
+   163→
+   164→Work Log:
+   165→- Git: árvore limpa, tudo commitado (10 commits, sem stash, só main). Nenhuma função em risco imediato de perda não-versionada.
+   166→- Auditoria completa dos fontes: page.tsx (5 etapas, estados fitMode/bottomGuardMm/cutLine/cropSession), constants.ts (cartão 95×56 colado; panfleto 100×144 two-cut), imposition.ts (two-cut com guarda adaptativa, CUT_LINE 2px #c8c8c8), crop.ts, enhance.ts, analysis.ts, pdf.ts, todos os painéis, step-nav, canvas-view — TODOS íntegros e alinhados ao worklog das Tasks 1–9.
+   167→- Lint limpo (eslint .); dev server saudável (HTTP 200); E2E smoke test com agent-browser no fluxo do PANFLETO: upload → recorte (botões 90° presentes) → tratamento → folha 4 peças → exportação (checklist "2 cortes: vertical a 105 mm, horizontal a 147,3 mm; ≈3,5 mm lat × 2,7 mm vert"; slider da guarda; switch linha de corte). Console sem erros.
+   168→- ACHADO 1 (fóssil): src/components/print/crop-dialog.tsx (704 linhas) é código ÓRFÃO do recorte ANTIGO — ninguém importa; referencia 9 funções que não existem mais em crop.ts (cropPresets, detectArtworkBounds, fitRectWithRatio, moveRect, resizeRect, clampRect, rotateCanvas, cropEffectiveDpi, CropHandle) → 27 erros de tsc. NÃO quebra o app nem o build (next.config tem typescript.ignoreBuildErrors: true) — só polui o type-check. Documenta recursos do recorte antigo que se perderam: trava de proporção/presets, detecção automática de bordas da arte, zoom 6× com pan e roda do mouse.
+   169→- ACHADO 2 (IA pela metade): src/lib/print/ai-restore.ts + src/app/api/enhance-ai/route.ts + scripts/test_ai_restore.ts existem e estão completos (7 tamanhos fixos, letterbox, prompt anti-alucinação), mas NENHUM componente chama restoreWithAI — não há botão "Restaurar com IA" na UI. Backend pronto, integração ausente.
+   170→- INVESTIGAÇÃO PANFLETO×A4: varrido o histórico git completo de constants.ts e imposition.ts (rg em git log -p por reduzir/diminuir/escala/shrink/scale/caber) — NUNCA existiu lógica commitada de reduzir o panfleto para caber. O panfleto sempre foi 100×144 mm; começou com gapMode "auto-border" (bordas brancas ≈3,3 mm lat × 3,0 mm vert em volta de cada peça — Task 1, "cabia certinho") e mudou para "two-cut" na Task 4 (a pedido do próprio usuário, p/ 2 cortes). Números atuais (guarda 3,0 mm): margens externas 1,5 mm lat × 0,6 mm topo / 3,0 mm base; folga de corte 3,5 mm lat × 2,7 mm vert. Interpretação mais provável da memória do usuário: (a) as bordas confortáveis da era auto-border sumiram quando o two-cut apertou as bordas externas, e/ou (b) a escolha de 100×144 (vs. ¼ A4 = 105×148,5) já ERA o "diminuir o panfleto para caber". Matemática de referência para o retorno do "encaixe certinho": com 3 mm de margem externa em todos os lados + guarda 3 mm, a peça precisa cair para ≈98×141 mm (−2%), sobrando ≈4 mm de folga de corte por peça.
+   171→- Nenhuma alteração de código nesta task (vistoria read-only). Únicos arquivos novos: tool-results/* (artefatos de leitura).
+   172→
+   173→Stage Summary:
+   174→- Projeto saudável: todas as funções das Tasks 1–9 confirmadas no código e em execução E2E; git 100% commitado. Pendências identificadas para os próximos passos: (1) reimplementar o "encaixe do panfleto na A4" (redução automática da peça p/ margens externas confortáveis, integrada ao two-cut sem tocar no resto do pipeline); (2) remover o fóssil crop-dialog.tsx; (3) ligar a restauração por IA à UI (botão no tratamento) — backend já pronto.
+   175→
+   176→---
+   177→Task ID: 10
+   178→Agent: main (Z.ai)
+   179→Task: Teste de redução do panfleto para impressora que morde em TODOS os lados — gerar material de teste (calibração + tamanhos decrescentes) sem afetar o resto do app.
+   180→
+   181→Work Log:
+   182→- Diagnóstico no imposition.ts: panfleto 100×144 mm em 2×2 (two-cut) deixa margens externas de 1,5 mm laterais / 0,6 mm topo / 3,0 mm base — qualquer impressora com zona não imprimível de 3–6 mm morde a arte (relato do usuário confirma).
+   183→- Decisão de método: em vez de vários ciclos de impressão, UM único PDF de 12 páginas: pág. 1 = régua de calibração (1–20 mm nas 4 bordas, fortes a cada 5 mm com etiqueta) que mede a mordida exata por lado; págs. 2–12 = testes A..K com 4 panfletos cada, 10,0×14,4 → 9,0×13,4 cm (passo 1 mm), layout simétrico (folga branca da folha cresce 1 mm/lado por página, de 1,5/1,0 mm até 11,5/11,0 mm), faixa de corte 3,5 mm/peça igual ao app, réguas internas de 10 mm nas peças.
+   184→- scripts/gen_printer_margin_test.py (ReportLab vetorial) → download/teste-margem-impressora-panfleto.pdf (12 págs A4 exato, metadados ImpressA4).
+   185→- scripts/verify_margin_test_pdf.py (pypdfium2 @300 DPI): 35 verificações OK — réguas a 1/20 mm nas 4 bordas, molduras nas posições exatas (A: 1,5/1,0 · C: 3,5/3,0 · K: 11,5/11,0 mm), margem branca externa, faixa central branca, preenchimento da arte, etiquetas. Bugs corrigidos no script: acesso px do PIL e conversão dupla mm→px; renderização pypdfium2 usa origem y=TOPO.
+   186→- Zero mudanças em src/ — nenhuma regressão possível no app nesta etapa.
+   187→
+   188→Stage Summary:
+   189→- Entregue: download/teste-margem-impressora-panfleto.pdf. Instrução: imprimir tudo em escala 100% (sem "ajustar à página"); pág. 1 dá a mordida exata por lado; o MAIOR teste A..K com as 4 molduras inteiras é o tamanho-alvo.
+   190→- Tabela: A 10,0×14,4 (folga 1,5/1,0) · B 9,9×14,3 (2,5/2,0) · C 9,8×14,2 (3,5/3,0) · D 9,7×14,1 (4,5/4,0) · E 9,6×14,0 (5,5/5,0) · F 9,5×13,9 (6,5/6,0) · G 9,4×13,8 (7,5/7,0) · H 9,3×13,7 (8,5/8,0) · I 9,2×13,6 (9,5/9,0) · J 9,1×13,5 (10,5/10,0) · K 9,0×13,4 (11,5/11,0) — folga em mm (laterais / topo-base).
+   191→- Próximo passo (após resultado do usuário): implementar no app a redução do panfleto no modo two-cut com distribuição simétrica (margem da impressora nos 4 lados), travando o tamanho confirmado pelo teste; manter guarda de base e linha de corte intactas.
+   192→
+   193→---
+   194→Task ID: 11
+   195→Agent: main (Z.ai)
+   196→Task: Travar o tamanho do panfleto no app com o resultado do teste de impressão (usuário validou o teste C = 9,8 × 14,2 cm "certinho") — sem afetar o resto do app.
+   197→
+   198→Work Log:
+   199→- constants.ts: panfleto widthMm 100→98, heightMm 144→142 + comentário do motivo (teste C validado em impressora real: mordida ≤3,5 mm lat / ≤3,0 mm topo-base) + spacingNote atualizada.
+   200→- Matemática intacta: imposition.ts deriva tudo da spec; com 98×142 + guarda 3,0 mm, a distribuição existente reproduz o teste C: margens 3,55 lat / 3,13 topo / 2,96 base; folga de corte volta a 3,5 mm completos por peça nos dois eixos (antes 3,5 lat × 2,7 vert).
+   201→- Textos de UI: export-panel (dica agora diz para imprimir no modo NORMAL, sem precisar de "Sem margens"; nota da guarda explica que o branco extra sai do topo), preview-panel (nota de margem externa genérica validada), imposition.ts (header + comentário do MAX_BOTTOM_GUARD).
+   202→- Lint OK, build OK.
+   203→- E2E agent-browser (upload injetado via fetch+DataTransfer porque o upload nativo do daemon travava 3×; botões clicados via eval por texto): fluxo completo de 5 etapas; UI mostra "Panfleto / Encarte 98 × 142 mm · 4 por folha · 2×2"; recorte/rotação 90° presentes na etapa 2; canvas da folha medido por pixel: margens 3,56/3,56/3,13/2,96 mm, grade 202,86×290,91 mm.
+   204→- PDF exportado capturado no browser (monkey-patch URL.createObjectURL → blob → base64 em 4 blocos → scripts/exported.pdf, 294.746 bytes) e validado com pypdfium2 (scripts/verify_pdf_98x142.py, 14 checks OK): 1 página A4 exata, margens 3,56/3,56/3,05/2,96 mm, peças 97,93×141,96 mm (= 98×142 nominal), faixas brancas centrais em x=105/y=148,5 mm, 4 peças com arte.
+   205→- Nota técnica: raster do PDF usa JPEG (DCTDecode) — verificação pixel precisa threshold imune a ruído (conteúdo < 240; branco ≥ 246); com threshold estrito (>250) artefatos de ±6 níveis falsam o bounding box (causa dos primeiros 7 FAILs, todos falsos positivos).
+   206→- Limpeza: arte de teste removida de public/, daemon do browser fechado.
+   207→
+   208→Stage Summary:
+   209→- Panfleto agora sai 98×142 mm com 3,5 mm (lat.) e ≈3,0 mm (topo/base) de branco nas bordas da folha — exatamente a geometria que o usuário imprimiu e aprovou. Impressão no modo normal (sem borderless) é segura; guarda de base padrão 3,0 mm mantida (slider continua para impressoras diferentes); recorte, rotação, tratamento, linha de corte e exportação intactos.
+   210→- Pendências herdadas da vistoria (Task 10): remover fóssil crop-dialog.tsx; ligar a restauração por IA à UI (backend pronto).
+   211→
