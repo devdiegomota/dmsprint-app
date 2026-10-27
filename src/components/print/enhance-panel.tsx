@@ -1,6 +1,7 @@
 "use client";
 
-import { Gauge, ScanLine, Type, Contrast, Crop, Frame, Scaling, Loader2, RotateCcw, ArrowRight, TriangleAlert } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Gauge, ScanLine, Type, Contrast, Crop, Frame, Scaling, Loader2, RotateCcw, ArrowRight, TriangleAlert, Sparkles, Undo2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,9 +12,16 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CanvasView } from "./canvas-view";
 import { cn } from "@/lib/utils";
-import { fmtMm, type ProductSpec } from "@/lib/print/constants";
+import { fmtMm, MM_PER_INCH, type ProductSpec } from "@/lib/print/constants";
 import type { ImageAnalysis } from "@/lib/print/analysis";
 import { framingInfo, type EnhanceSettings, type FitMode } from "@/lib/print/enhance";
+import {
+  planAiPlacement,
+  buildAiInput,
+  cropAiResult,
+  dataUrlToCanvas,
+  restoreWithAI,
+} from "@/lib/print/ai-restore";
 
 function MetricBadge({ level }: { level: "good" | "warn" | "bad" }) {
   return (
@@ -93,6 +101,10 @@ export function EnhancePanel({
   processing,
   onContinue,
   onResetSettings,
+  sourceCanvas,
+  aiActive,
+  onAiRestored,
+  onAiUndo,
 }: {
   spec: ProductSpec;
   analysis: ImageAnalysis;
@@ -105,8 +117,66 @@ export function EnhancePanel({
   processing: boolean;
   onContinue: () => void;
   onResetSettings: () => void;
+  /** Arte na resolução natural (pós-recorte) — fonte da restauração por IA. */
+  sourceCanvas: HTMLCanvasElement;
+  /** true enquanto a fonte do pipeline é a arte restaurada pela IA (habilita desfazer). */
+  aiActive: boolean;
+  onAiRestored: (canvas: HTMLCanvasElement) => void;
+  onAiUndo: () => void;
 }) {
   const update = (patch: Partial<EnhanceSettings>) => onSettingsChange({ ...settings, ...patch });
+
+  // ---- Restauração com IA (opcional — para artes de baixa resolução) ----
+  const [aiState, setAiState] = useState<"idle" | "working" | "error">("idle");
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiStats, setAiStats] = useState<{ before: number; after: number } | null>(null);
+
+  // Ganho estimado: mesmo cálculo de DPI efetivo de analyzeArtwork, aplicado ao
+  // canvas que a IA devolveria (arte contida no tamanho-alvo, sem letterbox).
+  const aiPlan = useMemo(
+    () => planAiPlacement(sourceCanvas.width, sourceCanvas.height),
+    [sourceCanvas],
+  );
+  const cutWIn = spec.widthMm / MM_PER_INCH;
+  const cutHIn = spec.heightMm / MM_PER_INCH;
+  const aiDpi = Math.round(Math.min(aiPlan.drawW / cutWIn, aiPlan.drawH / cutHIn));
+  const aiGain = aiDpi - analysis.effectiveDpi;
+  const aiWorthIt = aiGain >= 5;
+
+  // Visão do card: "working"/"error" vêm do estado local; "done" é derivado de
+  // aiActive (sobrevive à navegação entre etapas sem estado extra).
+  const aiView = aiState === "working" ? "working" : aiState === "error" ? "error" : aiActive ? "done" : "idle";
+
+  async function handleAiRestore() {
+    if (aiState === "working") return;
+    setAiState("working");
+    setAiError(null);
+    try {
+      await new Promise((r) => setTimeout(r, 30)); // deixa o spinner pintar antes do trabalho síncrono
+      const input = buildAiInput(sourceCanvas, aiPlan);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 180_000);
+      let dataUrl: string;
+      try {
+        dataUrl = await restoreWithAI(input, aiPlan.size, controller.signal);
+      } finally {
+        clearTimeout(timer);
+      }
+      const aiCanvas = await dataUrlToCanvas(dataUrl);
+      const restored = cropAiResult(aiCanvas, aiPlan);
+      const afterDpi = Math.round(Math.min(restored.width / cutWIn, restored.height / cutHIn));
+      setAiStats({ before: analysis.effectiveDpi, after: afterDpi });
+      onAiRestored(restored);
+      setAiState("idle");
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setAiError("Tempo esgotado (3 minutos). Verifique a conexão e tente novamente.");
+      } else {
+        setAiError(err instanceof Error ? err.message : "Falha inesperada na restauração.");
+      }
+      setAiState("error");
+    }
+  }
 
   const sharpLevel = analysis.sharpnessScore < 45 ? "bad" : analysis.sharpnessScore < 65 ? "warn" : "good";
   const resLevel = analysis.effectiveDpi >= 300 ? "good" : analysis.effectiveDpi >= 200 ? "warn" : "bad";
@@ -192,6 +262,78 @@ export function EnhancePanel({
               }
               level={ratioLevel}
             />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Restauração com IA</CardTitle>
+            <CardDescription>
+              Recria a arte em alta nitidez preservando composição, cores e textos — indicado para fotos de baixa
+              resolução (ex.: foto de WhatsApp). Nesta etapa a arte é enviada para processamento em nuvem; todo o
+              resto do fluxo segue 100% local no navegador.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {aiView === "working" ? (
+              <div className="flex items-center gap-3 rounded-lg border border-amber-600/40 bg-amber-600/10 p-4 text-sm">
+                <Loader2 className="h-5 w-5 shrink-0 animate-spin text-amber-600" aria-hidden />
+                <div>
+                  <p className="font-medium">Recriando a arte em alta nitidez…</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Pode levar até 1 minuto — não feche nem recarregue a página.
+                  </p>
+                </div>
+              </div>
+            ) : aiView === "done" ? (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-start gap-3 rounded-lg border border-emerald-600/40 bg-emerald-600/10 p-4 text-sm">
+                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden />
+                  <div>
+                    <p className="font-medium text-emerald-700 dark:text-emerald-400">
+                      Arte restaurada{aiStats ? `: ≈${aiStats.before} DPI → ≈${aiStats.after} DPI` : ""}.
+                    </p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                      Diagnóstico e tratamento atualizados automaticamente — compare as pré-visualizações ao lado.
+                      Confira textos e números no resultado antes de imprimir.
+                    </p>
+                  </div>
+                </div>
+                <div>
+                  <Button variant="outline" size="sm" onClick={onAiUndo}>
+                    <Undo2 className="h-4 w-4" aria-hidden />
+                    Desfazer restauração
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    onClick={handleAiRestore}
+                    disabled={!aiWorthIt}
+                    className="bg-amber-600 text-white hover:bg-amber-700"
+                  >
+                    <Sparkles className="h-4 w-4" aria-hidden />
+                    Restaurar com IA
+                  </Button>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {aiWorthIt
+                      ? `Resolução estimada: ≈${analysis.effectiveDpi} DPI hoje → ≈${aiDpi} DPI após a restauração.`
+                      : `Sem ganho estimado: a arte já está em ≈${analysis.effectiveDpi} DPI e a IA entrega no máximo ≈${aiDpi} DPI para o corte de ${fmtMm(spec.widthMm)} × ${fmtMm(spec.heightMm)} mm.`}
+                  </p>
+                </div>
+                {aiView === "error" && (
+                  <p
+                    role="alert"
+                    className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs leading-relaxed text-destructive"
+                  >
+                    <TriangleAlert className="mr-1.5 inline h-3.5 w-3.5" aria-hidden />
+                    {aiError}
+                  </p>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
 

@@ -110,11 +110,12 @@ export function cropAiResult(aiCanvas: HTMLCanvasElement, plan: AiPlacement): HT
 }
 
 /** Chama a API de restauração e devolve o data URL (PNG) da arte recriada. */
-export async function restoreWithAI(imageDataUrl: string, size: string): Promise<string> {
+export async function restoreWithAI(imageDataUrl: string, size: string, signal?: AbortSignal): Promise<string> {
   const res = await fetch("/api/enhance-ai", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ image: imageDataUrl, size }),
+    signal,
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);

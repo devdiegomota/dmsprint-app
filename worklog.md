@@ -239,3 +239,20 @@ Work Log:
 
 Stage Summary:
 - Recorte agora tem zoom 6× + detecção automática de bordas + navegação por teclado, mantendo exatamente a tela aprovada; fossil removido; pipeline (tratamento/imposição/exportação) intocado e revalidado E2E. Nota: guias de terços ficaram de fora (eram opcionais no pacote) — podem ser adicionadas depois se quiser.
+
+---
+Task ID: 14
+Agent: main (Z.ai)
+Task: Sugestão (b) — integrar "Restaurar com IA" à tela de tratamento (etapa 3), usando o backend 100% pronto (ai-restore.ts + /api/enhance-ai); auditar e commitar.
+
+Work Log:
+- enhance-panel.tsx (+146 linhas): novo card "Restauração com IA" entre "Diagnóstico da arte" e "Tratamento aplicado" — nada existente foi alterado. Ganho estimado ANTES de permitir: mesmo cálculo de DPI efetivo de analyzeArtwork aplicado ao canvas que a IA devolveria (planAiPlacement da arte atual); botão só habilita se o ganho for ≥ 5 DPI (evita REBAIXAR artes que já são boas — a IA entrega no máx. ≈206 DPI no panfleto 98×142). Estados: idle (botão + estimativa "≈X DPI hoje → ≈Y DPI" ou explicação de "sem ganho estimado"), working (spinner âmbar "não feche nem recarregue"), error (caixa vermelha + retry), done (caixa verde com os 2 DPIs + aviso de conferir textos + "Desfazer restauração"). Visão "done" é derivada da prop aiActive (sobrevive à navegação entre etapas sem estado extra, sem useEffect).
+- ai-restore.ts: restoreWithAI ganha signal?: AbortSignal (aditivo) — cliente aborta em 180 s com mensagem própria de timeout.
+- page.tsx (+50): preAiSourceRef (arte da fonte ANTES da IA, base do undo) + aiActive (state); handleAiRestored segue o MESMO padrão do recorte aplicado (nova análise → recommendSettings → preparePrintCanvas → debounce re-trata pixels → folha se remonta sozinha); handleAiUndo reverte. resetDerived limpa o estado da IA. handleCropApply invalida a IA quando o operador re-corta diferente ou remove o recorte (pipeline volta a derivar da arte original); re-aplicar o MESMO recorte preserva a arte restaurada. rawSourceRef continua NUNCA mutado (a IA cria canvas derivado, como o recorte).
+- Divulgação honesta: descrição do card avisa que nesta etapa a arte é enviada para processamento em nuvem (resto do fluxo segue 100% local).
+- Auditoria: tsc --noEmit = 0 erros nos 3 arquivos tocados (rg sem matches); npx eslint src --max-warnings=0 = 0/0; npm run build OK (13,3 s, rotas /, /api, /api/enhance-ai).
+- E2E Playwright com /api/enhance-ai SIMULADA (scripts/e2e_ai_restore.py, prod :3100): 10/10 — card visível e botão habilitado só com ganho; texto exato "≈104 DPI hoje → ≈206 DPI" (arte 400×580 no panfleto); payload da requisição validado (data URL + size 864x1152); após restaurar, diagnóstico re-analisado para 206 DPI e done mostra "≈104 DPI → ≈206 DPI"; desfazer volta a 104 DPI; re-restaurar funciona; etapa 4 alcançada com a arte restaurada. Nota: sem recorte o botão da etapa 2 é "Continuar sem recortar" (não "Aplicar recorte e continuar", que só existe com ajuste ativo).
+- Smoke da IA REAL (scripts/smoke_ai_api.py): POST 400×580 → 200 em 14,7 s, PNG 864×1152 válido — evidência em download/ai-restore-smoke.png. Cadeia completa (SDK + credenciais + rede) confirmada hoje.
+
+Stage Summary:
+- "Restaurar com IA" vivo na etapa 3: botão aparece com estimativa honesta de ganho, restaura a arte (pipeline re-analisa e re-trata automaticamente), permite desfazer e bloqueia uso inútil/prejudicial quando a arte já tem DPI suficiente. Dívida técnica da Task 12 encerrada (IA sem UI). Pendência restante (opcional): limpar scaffolding Prisma/api raiz.

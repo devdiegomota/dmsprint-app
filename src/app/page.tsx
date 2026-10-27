@@ -104,6 +104,10 @@ export default function Home() {
   const [cropSession, setCropSession] = useState<CropSession | null>(null);
   /** Sessão de recorte já consumida pelo pipeline (evita re-análise desnecessária). */
   const cropAppliedRef = useRef<{ session: CropSession; canvas: HTMLCanvasElement } | null>(null);
+  /** Arte da fonte ANTES da restauração por IA — base do "Desfazer restauração". */
+  const preAiSourceRef = useRef<HTMLCanvasElement | null>(null);
+  /** true enquanto a fonte do pipeline é a arte restaurada pela IA. */
+  const [aiActive, setAiActive] = useState(false);
 
   const spec = product ? PRODUCTS[product] : null;
 
@@ -118,6 +122,8 @@ export default function Home() {
     sourceRef.current = null;
     rawSourceRef.current = null;
     cropAppliedRef.current = null;
+    preAiSourceRef.current = null;
+    setAiActive(false);
     setCropSession(null);
   }, []);
 
@@ -219,8 +225,8 @@ export default function Home() {
       if (!spec) return;
       const applied = cropAppliedRef.current;
       if (!result || !session) {
-        // Nada a aplicar — se havia recorte no pipeline, reverte para a arte original.
-        if (applied && rawSourceRef.current) {
+        // Nada a aplicar — se havia recorte (ou restauração IA) no pipeline, reverte para a arte original.
+        if (rawSourceRef.current && (applied || preAiSourceRef.current)) {
           const a = analyzeArtwork(rawSourceRef.current, spec);
           sourceRef.current = rawSourceRef.current;
           setAnalysis(a);
@@ -228,6 +234,8 @@ export default function Home() {
           setPreparedCanvas(preparePrintCanvas(rawSourceRef.current, spec, fitMode));
           cropAppliedRef.current = null;
         }
+        preAiSourceRef.current = null;
+        setAiActive(false);
         goTo(3);
         return;
       }
@@ -245,11 +253,43 @@ export default function Home() {
         setSettings(recommendSettings(a));
         setPreparedCanvas(preparePrintCanvas(result, spec, fitMode));
         cropAppliedRef.current = { session, canvas: result };
+        // Novo recorte parte da arte original — restaura a base da IA (invalida o resultado anterior).
+        preAiSourceRef.current = null;
+        setAiActive(false);
       }
       goTo(3);
     },
     [spec, fitMode, goTo],
   );
+
+  // ---- Restauração por IA: troca a fonte do pipeline pela arte recriada (ou desfaz) ----
+  // Mesmo padrão do recorte aplicado: nova análise → novas recomendações → re-enquadramento;
+  // o efeito com debounce re-trata os pixels e a folha se remonta sozinha.
+  const handleAiRestored = useCallback(
+    (restored: HTMLCanvasElement) => {
+      if (!spec) return;
+      if (!preAiSourceRef.current) preAiSourceRef.current = sourceRef.current;
+      const a = analyzeArtwork(restored, spec);
+      sourceRef.current = restored;
+      setAnalysis(a);
+      setSettings(recommendSettings(a));
+      setPreparedCanvas(preparePrintCanvas(restored, spec, fitMode));
+      setAiActive(true);
+    },
+    [spec, fitMode],
+  );
+
+  const handleAiUndo = useCallback(() => {
+    if (!spec || !preAiSourceRef.current) return;
+    const src = preAiSourceRef.current;
+    const a = analyzeArtwork(src, spec);
+    sourceRef.current = src;
+    setAnalysis(a);
+    setSettings(recommendSettings(a));
+    setPreparedCanvas(preparePrintCanvas(src, spec, fitMode));
+    preAiSourceRef.current = null;
+    setAiActive(false);
+  }, [spec, fitMode]);
 
   return (
     <div className="flex min-h-screen flex-col bg-muted/30">
@@ -298,7 +338,7 @@ export default function Home() {
             />
           )}
 
-          {step === 3 && spec && analysis && settings && preparedCanvas && (
+          {step === 3 && spec && analysis && settings && preparedCanvas && sourceRef.current && (
             <EnhancePanel
               spec={spec}
               analysis={analysis}
@@ -311,6 +351,10 @@ export default function Home() {
               processing={enhancing}
               onContinue={() => goTo(4)}
               onResetSettings={() => analysis && setSettings(recommendSettings(analysis))}
+              sourceCanvas={sourceRef.current}
+              aiActive={aiActive}
+              onAiRestored={handleAiRestored}
+              onAiUndo={handleAiUndo}
             />
           )}
 
