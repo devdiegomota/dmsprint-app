@@ -1,0 +1,22 @@
+# Firebase App Hosting — configuração do backend (ImpressA4 / DMS Print).
+# Docs: https://firebase.google.com/docs/app-hosting/configure-github
+#
+# runConfig controla o Cloud Run por trás do backend:
+#  - minInstances: 0 → escala a zero quando ocioso (no Blaze, sem uso = sem custo)
+#  - concorrência 80 por instância é o padrão saudável para Node/Next
+runConfig:
+  minInstances: 0
+  maxInstances: 4
+  cpu: 1
+  memoryMiB: 512
+  concurrency: 80
+
+# Variáveis de ambiente disponíveis em BUILD e/ou RUNTIME.
+# NÃO colocar segredos aqui — chaves de API entram como "secret" pelo console:
+# App Hosting → backend → Secrets (integra com Google Secret Manager).
+# Ex. futuro (Etapa 3 — IA):
+# env:
+#   - variable: ZAI_API_KEY
+#     value: ZAI_API_KEY  # referencia um segredo criado no Secret Manager
+#     availability:
+#       - RUNTIME
