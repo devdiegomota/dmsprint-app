@@ -11,7 +11,7 @@ import ZAI from "z-ai-web-dev-sdk";
 export const runtime = "nodejs";
 
 /** Tamanhos suportados pela API de edição de imagem. */
-const SUPPORTED_SIZES = new Set([
+const SUPPORTED_SIZES = [
   "1024x1024",
   "768x1344",
   "864x1152",
@@ -19,7 +19,9 @@ const SUPPORTED_SIZES = new Set([
   "1152x864",
   "1440x720",
   "720x1440",
-]);
+] as const;
+type SupportedSize = (typeof SUPPORTED_SIZES)[number];
+const SUPPORTED_SET: ReadonlySet<string> = new Set<string>(SUPPORTED_SIZES);
 
 /**
  * Prompt de restauração (validado com artes de teste):
@@ -43,9 +45,9 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null);
     const image: unknown = body?.image;
-    const size: string =
-      typeof body?.size === "string" && SUPPORTED_SIZES.has(body.size)
-        ? body.size
+    const size: SupportedSize =
+      typeof body?.size === "string" && SUPPORTED_SET.has(body.size)
+        ? (body.size as SupportedSize)
         : "1024x1024";
 
     if (typeof image !== "string" || !image.startsWith("data:image/")) {
@@ -56,11 +58,15 @@ export async function POST(req: NextRequest) {
     }
 
     const zai = await ZAI.create();
-    const res = await zai.images.generations.edit({
+    // O SDK tipa `image?: string`, porém a API real (para onde o SDK repassa o
+    // payload verbatim) aceita o array `images` — formato validado em produção
+    // (restaurações reais). Mantemos o payload e apenas alinhamos o tipo ao tsc.
+    const editBody = {
       prompt: RESTORE_PROMPT,
       images: [{ url: image }],
       size,
-    });
+    } as unknown as Parameters<typeof zai.images.generations.edit>[0];
+    const res = await zai.images.generations.edit(editBody);
 
     const base64 = res?.data?.[0]?.base64;
     if (!base64) {

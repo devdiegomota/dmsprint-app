@@ -18,7 +18,9 @@ import {
   renderImposedSheet,
   computeLayout,
   DEFAULT_BOTTOM_GUARD_MM,
+  DEFAULT_CUT_LINE,
   type ImpositionLayout,
+  type CutLineConfig,
 } from "@/lib/print/imposition";
 import {
   analyzeArtwork,
@@ -90,9 +92,10 @@ export default function Home() {
   /** Guarda de base (mm) para a margem não imprimível da impressora — propriedade da
    *  impressora, NÃO é resetada junto com a arte. */
   const [bottomGuardMm, setBottomGuardMm] = useState(DEFAULT_BOTTOM_GUARD_MM);
-  /** Linha de corte fina (fio cinza-claro na borda de cada peça) — para artes com
-   *  fundo branco/claro, em que o operador não enxerga onde cortar na guilhotina. */
-  const [cutLine, setCutLine] = useState(false);
+  /** Linha de corte fina na borda de cada peça (espessura e cor personalizáveis na
+   *  etapa 4) — para artes com fundo branco/claro, em que o operador não enxerga
+   *  onde cortar na guilhotina. */
+  const [cutLine, setCutLine] = useState<CutLineConfig>(DEFAULT_CUT_LINE);
 
   const enhanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Canvas decodificado no tamanho natural — mantido para re-enquadrar sem re-decodificar.

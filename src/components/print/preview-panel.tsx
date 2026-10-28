@@ -5,10 +5,28 @@ import { Ruler, Grid3x3, Scissors, ArrowRight, FileText, ScanLine } from "lucide
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { CanvasView } from "./canvas-view";
+import { cn } from "@/lib/utils";
 import { A4, fmtMm, pxToMm, type ProductSpec } from "@/lib/print/constants";
-import { CUT_LINE_COLOR, CUT_LINE_WIDTH_PX, type ImpositionLayout } from "@/lib/print/imposition";
+import {
+  MAX_CUT_LINE_WIDTH_PX,
+  MIN_CUT_LINE_WIDTH_PX,
+  type CutLineConfig,
+  type ImpositionLayout,
+} from "@/lib/print/imposition";
+
+/** Cores rápidas para o fio de corte — cobre os casos comuns da gráfica;
+ *  qualquer outra cor fica disponível no seletor personalizado ao lado. */
+const CUT_LINE_PRESETS: { color: string; name: string }[] = [
+  { color: "#c8c8c8", name: "Cinza (padrão)" },
+  { color: "#000000", name: "Preto" },
+  { color: "#ffffff", name: "Branco" },
+  { color: "#ef4444", name: "Vermelho" },
+  { color: "#3b82f6", name: "Azul" },
+  { color: "#facc15", name: "Amarelo" },
+];
 
 export function PreviewPanel({
   spec,
@@ -21,9 +39,9 @@ export function PreviewPanel({
   spec: ProductSpec;
   layout: ImpositionLayout;
   sheetCanvas: HTMLCanvasElement | null;
-  /** Linha de corte fina (fio cinza-claro na borda de cada peça). */
-  cutLine: boolean;
-  onCutLineChange: (on: boolean) => void;
+  /** Linha de corte fina — espessura e cor personalizáveis. */
+  cutLine: CutLineConfig;
+  onCutLineChange: (c: CutLineConfig) => void;
   onContinue: () => void;
 }) {
   // Linhas de corte = meio da faixa branca central de cada eixo (fonte única: layout).
@@ -35,7 +53,7 @@ export function PreviewPanel({
   const detailRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const target = detailRef.current;
-    if (!target || !sheetCanvas || !cutLine) return;
+    if (!target || !sheetCanvas || !cutLine.enabled) return;
     const w = 400;
     const h = 250;
     const sx = Math.max(0, layout.colX[0] - 30);
@@ -75,27 +93,81 @@ export function PreviewPanel({
               {A4.widthMm} × {A4.heightMm} mm — retrato
             </p>
 
-            {/* Linha de corte fina (para artes de fundo branco/claro) */}
-            <div className="mt-4 flex items-start justify-between gap-4 rounded-lg border p-4">
-              <div>
-                <p className="flex items-center gap-1.5 text-sm font-semibold">
-                  <ScanLine className="h-4 w-4 text-amber-600" aria-hidden />
-                  Linha de corte fina
-                </p>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  Fio cinza-claro (≈{pxToMm(CUT_LINE_WIDTH_PX).toFixed(2)} mm) na borda de cada peça — guia a guilhotina
-                  em artes com fundo branco/claro e fica quase invisível no produto final.
-                </p>
+            {/* Linha de corte fina (para artes de fundo branco/claro) — espessura e cor combinam com a arte */}
+            <div className="mt-4 rounded-lg border p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="flex items-center gap-1.5 text-sm font-semibold">
+                    <ScanLine className="h-4 w-4 text-amber-600" aria-hidden />
+                    Linha de corte fina
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    Fio na borda de cada peça — guia a guilhotina em artes com fundo branco/claro. Ajuste a espessura e
+                    escolha a cor que melhor aparece sobre a sua arte (fica quase invisível no produto final).
+                  </p>
+                </div>
+                <Switch
+                  checked={cutLine.enabled}
+                  onCheckedChange={(v) => onCutLineChange({ ...cutLine, enabled: v })}
+                  aria-label="Ativar linha de corte fina"
+                  className="mt-0.5"
+                />
               </div>
-              <Switch
-                checked={cutLine}
-                onCheckedChange={onCutLineChange}
-                aria-label="Ativar linha de corte fina"
-                className="mt-0.5"
-              />
+
+              {cutLine.enabled && (
+                <div className="mt-4 flex flex-col gap-4 border-t pt-4">
+                  <div>
+                    <div className="mb-2 flex justify-between text-xs text-muted-foreground">
+                      <span>Espessura do fio</span>
+                      <span className="font-mono text-foreground">
+                        {cutLine.widthPx} px (≈{pxToMm(cutLine.widthPx).toFixed(2)} mm)
+                      </span>
+                    </div>
+                    <Slider
+                      aria-label="Espessura da linha de corte"
+                      value={[cutLine.widthPx]}
+                      min={MIN_CUT_LINE_WIDTH_PX}
+                      max={MAX_CUT_LINE_WIDTH_PX}
+                      step={1}
+                      onValueChange={([v]) => onCutLineChange({ ...cutLine, widthPx: v })}
+                    />
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      Fios finos (1–2 px) somem em muitas impressoras; prefira 2 px ou mais para o guia sair impresso.
+                    </p>
+                  </div>
+                  <div>
+                    <p className="mb-2 text-xs text-muted-foreground">Cor do fio</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {CUT_LINE_PRESETS.map((p) => (
+                        <button
+                          key={p.color}
+                          type="button"
+                          aria-label={`Cor do fio: ${p.name}`}
+                          title={p.name}
+                          onClick={() => onCutLineChange({ ...cutLine, color: p.color })}
+                          className={cn(
+                            "h-7 w-7 rounded-full border border-black/10 transition-shadow",
+                            cutLine.color.toUpperCase() === p.color.toUpperCase() &&
+                              "ring-2 ring-amber-600 ring-offset-2 ring-offset-background",
+                          )}
+                          style={{ backgroundColor: p.color }}
+                        />
+                      ))}
+                      <input
+                        type="color"
+                        value={cutLine.color}
+                        onChange={(e) => onCutLineChange({ ...cutLine, color: e.target.value })}
+                        aria-label="Cor personalizada da linha de corte"
+                        title="Cor personalizada"
+                        className="h-7 w-9 cursor-pointer rounded border bg-transparent p-0.5"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {cutLine && (
+            {cutLine.enabled && (
               <div className="mt-3">
                 <canvas
                   ref={detailRef}
@@ -103,8 +175,8 @@ export function PreviewPanel({
                   className="w-full rounded-md border bg-white"
                 />
                 <p className="mt-1.5 text-center text-xs text-muted-foreground">
-                  Ampliação 1:1 do canto — o fio {CUT_LINE_COLOR.replace("#", "").toUpperCase()} marca a medida exata de
-                  corte.
+                  Ampliação 1:1 do canto — o fio {cutLine.color.toUpperCase()} de {cutLine.widthPx} px marca a medida
+                  exata de corte.
                 </p>
               </div>
             )}

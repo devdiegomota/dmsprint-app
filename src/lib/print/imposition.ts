@@ -85,11 +85,48 @@ export const CUT_CLEARANCE_PX = mmToPx(3.5); // 41 px ≈ 3,5 mm
  *    em muitas impressoras).
  *  - Cinza claro (#c8c8c8): visível o bastante para guiar o corte na folha, quase
  *    invisível no produto final.
+ *  - Espessura e cor são PERSONALIZÁVEIS na UI (CutLineConfig) — o operador pode
+ *    combinar o fio com a cor da arte (ex.: fio preto em arte clara, fio branco
+ *    sobre arte escura). Os padrões abaixo preservam o comportamento original.
  * O traço é alinhado a pixels inteiros e desenhado integralmente DENTRO da peça,
  * então o tamanho de corte permanece exato (a lâmina passa raspando a linha).
  */
 export const CUT_LINE_WIDTH_PX = 2; // ≈ 0,17 mm @ 300 DPI
 export const CUT_LINE_COLOR = "#c8c8c8";
+/** Limites do slider de espessura na UI (px @ 300 DPI). */
+export const MIN_CUT_LINE_WIDTH_PX = 1;
+export const MAX_CUT_LINE_WIDTH_PX = 8; // ≈ 0,68 mm — ainda um fio discreto
+
+/** Configuração da linha de corte ajustável na etapa 4 (Pré-visualização). */
+export interface CutLineConfig {
+  /** Desenha o fio na borda de cada peça. */
+  enabled: boolean;
+  /** Espessura do fio em px @ 300 DPI (1–8; padrão 2 ≈ 0,17 mm). */
+  widthPx: number;
+  /** Cor do fio em hex (#rrggbb; padrão #c8c8c8). */
+  color: string;
+}
+
+/** Padrão — mesmo comportamento de antes da personalização. */
+export const DEFAULT_CUT_LINE: CutLineConfig = {
+  enabled: false,
+  widthPx: CUT_LINE_WIDTH_PX,
+  color: CUT_LINE_COLOR,
+};
+
+/**
+ * Normaliza a configuração recebida (aceita boolean legado) em valores seguros:
+ * espessura clampada a 1–8 px e cor validada como hex #rrggbb. Retorna null
+ * quando a linha está desativada.
+ */
+export function normalizeCutLine(c: CutLineConfig | boolean | undefined): CutLineConfig | null {
+  if (c === undefined) return null;
+  if (typeof c === "boolean") c = { enabled: c, widthPx: CUT_LINE_WIDTH_PX, color: CUT_LINE_COLOR };
+  if (!c.enabled) return null;
+  const widthPx = Math.min(MAX_CUT_LINE_WIDTH_PX, Math.max(MIN_CUT_LINE_WIDTH_PX, Math.round(c.widthPx)));
+  const color = /^#[0-9a-fA-F]{6}$/.test(c.color) ? c.color : CUT_LINE_COLOR;
+  return { enabled: true, widthPx, color };
+}
 
 /**
  * Guarda de base (modo 2 cortes): branco extra na BASE da folha para absorver a margem
@@ -136,8 +173,8 @@ function twoCutRows(pagePx: number, cellPx: number, guardPx: number): number[] {
 export interface ImpositionOptions {
   /** Branco extra na base da folha, em mm (padrão: {@link DEFAULT_BOTTOM_GUARD_MM}). */
   bottomGuardMm?: number;
-  /** Desenha a linha de corte fina ({@link CUT_LINE_COLOR}) na borda de cada peça. */
-  cutLine?: boolean;
+  /** Linha de corte fina ({@link CutLineConfig}) — aceita boolean legado. */
+  cutLine?: CutLineConfig | boolean;
 }
 
 export function computeLayout(spec: ProductSpec, options: ImpositionOptions = {}): ImpositionLayout {
@@ -217,9 +254,10 @@ export function renderImposedSheet(
   // Traço em pixels inteiros, 100% dentro da peça: o tamanho de corte continua
   // exato (a lâmina passa raspando a linha). Em peças coladas, os traços vizinhos
   // se encontram formando um fio duplo de 4 px exatamente sobre a linha de vinco.
-  if (options.cutLine) {
-    const lw = CUT_LINE_WIDTH_PX;
-    ctx.strokeStyle = CUT_LINE_COLOR;
+  const cut = normalizeCutLine(options.cutLine);
+  if (cut) {
+    const lw = cut.widthPx;
+    ctx.strokeStyle = cut.color;
     ctx.lineWidth = lw;
     for (let r = 0; r < layout.rows; r++) {
       for (let c = 0; c < layout.cols; c++) {
@@ -258,9 +296,10 @@ export function describeLayout(spec: ProductSpec, options: ImpositionOptions = {
       `Borda branca por peça: ≈${pxToMm(layout.gapXPx).toFixed(1)} mm (lat.) × ≈${pxToMm(layout.gapYPx).toFixed(1)} mm (vert.) — máximo possível no A4`,
     );
   }
-  if (options.cutLine) {
+  const cut = normalizeCutLine(options.cutLine);
+  if (cut) {
     lines.push(
-      `Linha de corte fina ativada: fio cinza-claro de ≈${pxToMm(CUT_LINE_WIDTH_PX).toFixed(2)} mm na borda de cada peça (guia para artes de fundo branco/claro).`,
+      `Linha de corte ativada: fio de ≈${pxToMm(cut.widthPx).toFixed(2)} mm na borda de cada peça (cor ${cut.color.toUpperCase()}) — guia para artes de fundo branco/claro.`,
     );
   }
   return lines;

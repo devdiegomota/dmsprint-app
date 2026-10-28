@@ -256,3 +256,22 @@ Work Log:
 
 Stage Summary:
 - "Restaurar com IA" vivo na etapa 3: botão aparece com estimativa honesta de ganho, restaura a arte (pipeline re-analisa e re-trata automaticamente), permite desfazer e bloqueia uso inútil/prejudicial quando a arte já tem DPI suficiente. Dívida técnica da Task 12 encerrada (IA sem UI). Pendência restante (opcional): limpar scaffolding Prisma/api raiz.
+
+---
+Task ID: 15
+Agent: main (Z.ai)
+Task: (1) Limpeza opcional do scaffolding (Prisma + api raiz) aprovada pelo usuário; (2) linha de corte fina PERSONALIZÁVEL na etapa 4 (espessura + cor, para combinar com a arte). Auditar e commitar.
+
+Work Log:
+- LIMPEZA: removidos src/lib/db.ts (único importador de @prisma/client), src/app/api/route.ts ("Hello world"), prisma/schema.prisma; scripts db:* fora do package.json; dependências prisma e @prisma/client removidas via bun remove (bun.lock consistente); .env esvaziado (continha só DATABASE_URL). Build confirma: rota /api sumiu da lista (/, /_not-found, /api/enhance-ai apenas). Zero impacto no fluxo.
+- LINHA DE CORTE (imposition.ts): novo tipo CutLineConfig {enabled, widthPx 1–8, color hex} + DEFAULT_CUT_LINE (false, 2 px, #c8c8c8 — comportamento original preservado) + normalizeCutLine (aceita boolean legado; clamp 1–8 px; valida hex, cai no padrão em entrada inválida). renderImposedSheet e describeLayout consomem a config normalizada.
+- UI (preview-panel.tsx): bloco da linha ganhou, quando ligada, slider de espessura 1–8 px com equivalente em mm ("8 px (≈0.68 mm)"), 6 cores rápidas (cinza padrão, preto, branco, vermelho, azul, amarelo) com anel de seleção e input type=color para cor livre. Ampliação 1:1 do canto agora cita cor e espessura reais. Dica impressa: fios 1–2 px podem sumir em algumas impressoras.
+- Sincronia: page.tsx guarda CutLineConfig único (setCutLine direto); ExportPanel usa cutLine.enabled no switch e no checklist (que agora cita "fio de ≈X mm na cor #HEX"); folha, ampliação, checklist e PDF saem sempre da mesma config (a linha vai embutida no sheetCanvas).
+- Bônus de auditoria: eliminado o último erro de tsc em src/ (enhance-ai/route.ts: whitelist tipada SupportedSize + cast documentado para o payload do SDK — o tipo do SDK diz `image?: string` mas a API real consome `images[]` verbatim, formato validado em produção; zero mudança de comportamento). tsc src/ = 0 erros pela primeira vez (resta só skills/, fora do app).
+- Auditoria: npx eslint src --max-warnings=0 = 0/0; npm run build OK.
+- E2E linha de corte (scripts/e2e_cutline.py, prod :3100, leitura de PIXELS do canvas real 2480×3508): 10/10 — padrão #c8c8c8 com 2 px começando exatamente em x=42 (colX[0]; fio 100% dentro da peça, x=41 branco); preset Vermelho 2 px; cor livre #123456 2 px; espessura 8 px = 8 pixels contíguos e nada fora de [42,49]; desligar volta ao branco puro; etapa 5 cita cor/espesura no checklist e o switch sincronizado.
+- E2E regressão da IA (scripts/e2e_ai_restore.py): 10/10 após as mudanças — nenhum efeito colateral no fluxo de restauração.
+- Lições de ambiente: (1) processos bun órfãos sobrevivem ao terminate() do npm wrapper e servem build antigo → chunks 500/hidratação morta; matar com pkill -f standalone/server.js antes de cada E2E. (2) Nesta versão do Playwright Python, locator.evaluate com arg-lista falha ("object is not iterable") — usar page.evaluate (SCAN_JS já localiza o canvas). (3) Radix Slider: role=slider fica no thumb, sem o aria-label da raiz.
+
+Stage Summary:
+- App enxugado (scaffolding Prisma/api raiz eliminado, -50 linhas e 2 pacotes) e linha de corte agora combinável com a arte: espessura 1–8 px e cor livre (6 presets + seletor), com pré-visualização 1:1, checklist sincronizado e o tamanho de corte continuing exato (fio desenhado dentro da peça). Padrões preservados: sem ligar o switch, o PDF é idêntico ao homologado (98×142 validado). Fonte única de verdade em CutLineConfig; boolean legado aceito na API de imposição.
