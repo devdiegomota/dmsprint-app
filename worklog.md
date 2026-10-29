@@ -291,3 +291,21 @@ Work Log:
 
 Stage Summary:
 - A restauração por IA agora roda em qualquer servidor: a rota fala direto com o Gemini usando a chave em secret (GEMINI_API_KEY), degrada com mensagem clara quando não configurada e mantém o pipeline validado intocado. Fósseis mortos eliminados (db.ts, crop-dialog.tsx) e o smoke script passou a exercitar o backend real. Falta só a chave do usuário (AI Studio) para o teste ponta a ponta e o secret no Firebase para publicar.
+
+---
+Task ID: 19
+Agent: main (Z.ai)
+Task: Publicar a IA de restauração em produção com a chave do usuário: validar a chave nova, atualizar o secret no Firebase, disparar rollout e testar E2E contra https://dmsprint-app--dmsprintapp.us-east4.hosted.app.
+
+Work Log:
+- ESTADO HERDADO: o commit do Task 18 (62078ef) + checkpoint da plataforma com scripts/run_detached.py (2cfe4c3, mensagem UUID) já estavam no main do GitHub (verificado via git ls-remote) — o rollout automático já tinha publicado o código novo antes desta sessão.
+- SONDA 1 (E2E produção, arte 883×239, size 1440x720): 502 "A chave da IA é inválida ou está sem permissão" = ramo 401/403 do mapeamento → a chave antiga no secret estava revogada/sem permissão. Usuário forneceu chave nova (formato novo do AI Studio, AQ.Ab8…).
+- Validação da chave nova: models.list no sandbox → 400 FAILED_PRECONDITION "User location is not supported" (geo-bloco do sandbox, saída HK) — autenticação passou antes do bloqueio, chave válida (mesmo padrão da chave anterior; produção nos EUA não sofre o bloqueio).
+- SECRET: firebase apphosting:secrets:set GEMINI_API_KEY --data-file=- --force (npx -y firebase-tools 15.34.2; binário "firebase" não existe no PATH) → versão 2 criada (projects/944897858113/secrets/GEMINI_API_KEY/versions/2); apphosting.yaml permaneceu intocado (git diff vazio).
+- ROLLOUT MANUAL sem push: firebase apphosting:rollouts:create dmsprint-app -b main -f --project dmsprintapp → "Successfully created a new rollout"; sondas subsequentes passaram a devolver o fallback "HTTP 402" (texto que só existe no build novo), provando secret v2 + Task 18 ativos em produção.
+- BLOQUEIO ATUAL: Gemini responde HTTP 402 Payment Required para gemini-2.5-flash-image — o free tier desse modelo tem limite 0 (js-genai issue #1322: "This model is not enabled for your tier… Enable billing"). A chave é válida; o projeto AI Studio dela está SEM COBRANÇA (billing). Ação do usuário: ativar billing no AI Studio (a mesma chave passa a funcionar sem nenhuma mudança de código) OU eu troco temporariamente para um modelo experimental gratuito via GEMINI_IMAGE_MODEL (qualidade inferior e marca d'água).
+- Melhoria enquanto isso: geminiHttpMessage ganhou caso 402 dedicado com mensagem PT-BR amigável (antes caía no texto genérico).
+- Auditoria: npx eslint src --max-warnings=0 = 0/0 (route.ts alterado só no switch de mensagens; zero mudança de comportamento nos demais status).
+
+Stage Summary:
+- Task 18 confirmado 100% em produção e a chave nova implantada (secret v2 + rollout manual concluídos sem precisar de push). Última milha do E2E depende só de billing no AI Studio (402). Rota agora explica o 402 em PT-BR para quem usa o app. Próximo passo: usuário ativa a cobrança → eu re-rodo o E2E (bun scripts/test_ai_restore.ts download/ai-restore-smoke.png <out> 1440x720 https://dmsprint-app--dmsprintapp.us-east4.hosted.app).

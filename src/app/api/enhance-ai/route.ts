@@ -73,6 +73,8 @@ function geminiHttpMessage(status: number, apiMessage: string): string {
     case 401:
     case 403:
       return "A chave da IA é inválida ou está sem permissão — confira GEMINI_API_KEY no servidor.";
+    case 402:
+      return "A IA está sem crédito no servidor — a chave precisa de cobrança ativa no Google AI Studio. Avise o administrador ou tente mais tarde.";
     case 404:
       return "Modelo de IA indisponível — confira GEMINI_IMAGE_MODEL no servidor.";
     case 429:
