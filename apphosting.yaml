@@ -1,16 +1,6 @@
 # Firebase App Hosting — configuração do backend (ImpressA4 / DMS Print).
 # Docs: https://firebase.google.com/docs/app-hosting/configure-github
 #
-# runConfig controla o Cloud Run por trás do backend:
-#  - minInstances: 0 → escala a zero quando ocioso (no Blaze, sem uso = sem custo)
-#  - concorrência 80 por instância é o padrão saudável para Node/Next
-runConfig:
-  minInstances: 0
-  maxInstances: 4
-  cpu: 1
-  memoryMiB: 512
-  concurrency: 80
-
 # Variáveis de ambiente disponíveis em BUILD e/ou RUNTIME.
 # NÃO colocar segredos aqui — chaves de API entram como "secret" (Secret Manager).
 #
@@ -33,7 +23,35 @@ runConfig:
 #  chaves de TODOS os projetos ligados a ela, em qualquer modelo de imagem.
 #  Padrão mantido: gemini-2.5-flash-image (validado com arte real) — volta a
 #  funcionar sozinho quando houver crédito/chave nova; nada a mudar no código.
+#
+# IA da restauração — PROVEDORES (2026-10-29, Task 22):
+#   AI_PROVIDER=auto    (padrão) Gemini primeiro; qualquer falha (402 sem
+#                       crédito etc.) → super-resolução ESRGAN local gratuita.
+#                       Quando o crédito voltar, o Gemini assume sozinho.
+#   AI_PROVIDER=esrgan  apenas ESRGAN local (Real-ESRGAN General x4v3 rodando
+#                       no próprio servidor via onnxruntime-node — sem chave,
+#                       sem quota, sem custo; modelo ~4,5 MB baixado de bucket
+#                       S3 público (Qualcomm AI Hub) e cacheado em /tmp por
+#                       instância; ~300 ms/tile de 128px no vCPU do Cloud Run).
+#   AI_PROVIDER=gemini  apenas Gemini (comportamento histórico).
+#
+# runConfig controla o Cloud Run por trás do backend:
+#  - minInstances: 0 → escala a zero quando ocioso (no Blaze, sem uso = sem custo)
+#  - concorrência 80 por instância é o padrão saudável para Node/Next
+runConfig:
+  minInstances: 0
+  maxInstances: 4
+  cpu: 1
+  # 1 GiB: baseline do Node + ORT + buffers de tile do ESRGAN (medido ~300 MB
+  # por inferência simultânea; semáforo da lib limita a 2 + fila de 2).
+  memoryMiB: 1024
+  concurrency: 80
+
 env:
+  - variable: AI_PROVIDER
+    value: auto
+    availability:
+      - RUNTIME
   - variable: GEMINI_API_KEY
     secret: GEMINI_API_KEY
     availability:

@@ -49,6 +49,9 @@ dev.out.log
 test
 prompt
 
+# artefatos locais de teste (imagens de saída, logs de servidor)
+/work/
+
 server.log
 # Skills directory
 /skills/
