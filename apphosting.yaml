@@ -43,7 +43,7 @@ runConfig:
   maxInstances: 4
   cpu: 1
   # 1 GiB: baseline do Node + ORT + buffers de tile do ESRGAN (medido ~300 MB
-  # por inferência simultânea; semáforo da lib limita a 2 + fila de 2).
+  # por inferência; semáforo da lib limita a 1 por vez + fila de 2).
   memoryMiB: 1024
   concurrency: 80
 

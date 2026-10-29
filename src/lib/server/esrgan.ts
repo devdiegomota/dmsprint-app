@@ -18,11 +18,14 @@
  * remontamos em 4× e devolvemos no TAMANHO ORIGINAL (o cliente normaliza e
  * recorta a região da arte — mesmo contrato do Gemini).
  *
- * Custos medidos (Xeon 1 thread): ~300 ms/tile → pior caso (1024×1024,
- * 121 tiles) ≈ 35 s; RSS ≈ 300 MB. Limite de memória do backend: 1024 MiB.
+ * Custos medidos: ~300 ms/tile no sandbox, ~440 ms/tile no vCPU do Cloud Run
+ * (cpu=1) → pior caso (1024×1024, 121 tiles) ≈ 55 s; RSS ≈ 300 MB. Limite de
+ * memória do backend: 1024 MiB.
  *
- * Concorrência: no máximo 2 inferências simultâneas por instância + 2 na fila
- * (protege RAM/CPU do Cloud Run cpu=1). Acima disso → 503 "ocupado".
+ * Concorrência: UMA inferência por vez por instância (desempenho previsível no
+ * vCPU único; duas em paralelo dobrariam o tempo de cada e violariam o watchdog)
+ * + fila de 2. Quando a CPU satura, o Cloud Run cria outra instância. Acima da
+ * fila → 503 "ocupado".
  */
 
 import fs from "node:fs";
@@ -139,7 +142,7 @@ async function ensureSession(): Promise<InferenceSession> {
 /* Semáforo: protege RAM/CPU da instância                              */
 /* ------------------------------------------------------------------ */
 
-const MAX_RUNNING = 2;
+const MAX_RUNNING = 1;
 const MAX_QUEUE = 2;
 let running = 0;
 const waiters: Array<() => void> = [];
