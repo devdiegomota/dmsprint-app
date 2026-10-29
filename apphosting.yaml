@@ -24,15 +24,15 @@ runConfig:
 #  Opcional: variável GEMINI_IMAGE_MODEL para trocar o modelo (padrão
 #  gemini-2.5-flash-image) sem alterar código.
 #  2026-10-29: IDs "GA" (gemini-2.5-flash-image, gemini-3.1-flash-lite-image)
-#  exigem billing (HTTP 402). Free tier do AI Studio fica nos IDs -preview
-#  (painel ai.dev/rate-limit: "Gemini 2.5 Flash Preview Image" = 500 RPM /
-#  2K RPD) → gemini-2.5-flash-image-preview.
+#  exigem billing (HTTP 402). gemini-2.5-flash-image-preview = 404 (aposentado).
+#  Próximo candidato: gemini-nano-banana-2.1 (painel ai.dev/rate-limit: 100 RPM /
+#  1K RPD; mais novo da família, tipografia melhorada).
 env:
   - variable: GEMINI_API_KEY
     secret: GEMINI_API_KEY
     availability:
       - RUNTIME
   - variable: GEMINI_IMAGE_MODEL
-    value: gemini-2.5-flash-image-preview
+    value: gemini-nano-banana-2.1
     availability:
       - RUNTIME
