@@ -275,3 +275,19 @@ Work Log:
 
 Stage Summary:
 - App enxugado (scaffolding Prisma/api raiz eliminado, -50 linhas e 2 pacotes) e linha de corte agora combinável com a arte: espessura 1–8 px e cor livre (6 presets + seletor), com pré-visualização 1:1, checklist sincronizado e o tamanho de corte continuing exato (fio desenhado dentro da peça). Padrões preservados: sem ligar o switch, o PDF é idêntico ao homologado (98×142 validado). Fonte única de verdade em CutLineConfig; boolean legado aceito na API de imposição.
+
+---
+Task ID: 18
+Agent: main (Z.ai)
+Task: Etapa 3 — levar a "Restauração com IA" para a produção (Firebase): o SDK do sandbox não existe fora dele. Diagnóstico, substituição do backend da rota e limpeza de fósseis que um checkpoint ressuscitou. Auditar e commitar.
+
+Work Log:
+- DIAGNÓSTICO: /api/enhance-ai usava z-ai-web-dev-sdk, que lê .z-ai-config do sandbox (baseUrl https://internal-api.z.ai/v1 + chave interna da plataforma) — no Firebase App Hosting esse arquivo/credencial não existem, logo a IA quebraria em produção. Pesquisa: a API PÚBLICA da Z.ai (docs.z.ai) expõe apenas glm-image text-to-image (POST /paas/v4/images/generations) — não há edição com imagem de entrada documentada (nem na plataforma CN bigmodel.cn).
+- ESCOLHA: Google Gemini (edição de imagem / "Nano Banana") — mesma casa do Firebase/Blaze (conta Google), chave única do AI Studio, fidelidade de texto de referência (crítico para arte impressa). Rota reescrita (fetch direto, zero SDK): POST models/{modelo}:generateContent com o RESTORE_PROMPT INALTERADO (já validado com artes reais) + inlineData; responseModalities TEXT+IMAGE; erros mapeados PT-BR (400/401/403/404/429/503/timeout 150 s com AbortController próprio e mensagem dedicada); sem chave → 503 honesto; blockReason da IA → 422. Modelo configurável via GEMINI_IMAGE_MODEL (padrão gemini-2.5-flash-image).
+- CONTRATO com o cliente preservado ({image,size} → {image,mime,size}); ai-restore.ts apenas passou a respeitar o mime devolvido pela IA (mudança aditiva; PNG continua como fallback). enhance-panel/pipeline intocados.
+- apphosting.yaml: secret GEMINI_API_KEY declarado (availability RUNTIME) + passo a passo no comentário (AI Studio → apphosting:secrets:set → rollout seguinte já nasce com a chave). .env.local (gitignored, regra .env* já existia) criado como receita local.
+- Limpeza de fósseis ressuscitados por checkpoint da plataforma (zero importadores em src/, confirmado por rg): src/lib/db.ts (importava @prisma/client — dependência já removida na Task 15) e src/components/print/crop-dialog.tsx (modal antigo substituído pela Task 13; tipos quebrados há tempos — o build só passava pelo ignoreBuildErrors do template). scripts/test_ai_restore.ts reescrito para a MESMA chamada HTTP da rota — serve para testar local E produção (BASE_URL/4º argumento).
+- Auditoria: npx eslint src --max-warnings=0 = 0/0; tsc --noEmit = restam só examples//skills/ (fora do app, pré-existentes); npm run build OK (rotas /, /_not-found, /api/enhance-ai). Smoke do 503 honesto via curl no dev server = mensagem PT-BR correta. Teste real de restauração pendente da chave AI Studio do usuário.
+
+Stage Summary:
+- A restauração por IA agora roda em qualquer servidor: a rota fala direto com o Gemini usando a chave em secret (GEMINI_API_KEY), degrada com mensagem clara quando não configurada e mantém o pipeline validado intocado. Fósseis mortos eliminados (db.ts, crop-dialog.tsx) e o smoke script passou a exercitar o backend real. Falta só a chave do usuário (AI Studio) para o teste ponta a ponta e o secret no Firebase para publicar.

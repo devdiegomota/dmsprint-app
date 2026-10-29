@@ -109,7 +109,7 @@ export function cropAiResult(aiCanvas: HTMLCanvasElement, plan: AiPlacement): HT
   return out;
 }
 
-/** Chama a API de restauração e devolve o data URL (PNG) da arte recriada. */
+/** Chama a API de restauração e devolve o data URL da arte recriada. */
 export async function restoreWithAI(imageDataUrl: string, size: string, signal?: AbortSignal): Promise<string> {
   const res = await fetch("/api/enhance-ai", {
     method: "POST",
@@ -129,7 +129,13 @@ export async function restoreWithAI(imageDataUrl: string, size: string, signal?:
   if (typeof base64 !== "string" || base64.length < 100) {
     throw new Error("Resposta da IA vazia ou inválida.");
   }
-  return `data:image/png;base64,${base64}`;
+  // A rota informa o mime real devolvido pela IA (padrão: PNG).
+  const mime =
+    typeof data === "object" && data !== null && "mime" in data
+      ? (data as { mime: unknown }).mime
+      : null;
+  const safeMime = typeof mime === "string" && mime.startsWith("image/") ? mime : "image/png";
+  return `data:${safeMime};base64,${base64}`;
 }
 
 /** Carrega um data URL em um canvas no tamanho natural. */

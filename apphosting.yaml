@@ -12,11 +12,19 @@ runConfig:
   concurrency: 80
 
 # Variáveis de ambiente disponíveis em BUILD e/ou RUNTIME.
-# NÃO colocar segredos aqui — chaves de API entram como "secret" pelo console:
-# App Hosting → backend → Secrets (integra com Google Secret Manager).
-# Ex. futuro (Etapa 3 — IA):
-# env:
-#   - variable: ZAI_API_KEY
-#     value: ZAI_API_KEY  # referencia um segredo criado no Secret Manager
-#     availability:
-#       - RUNTIME
+# NÃO colocar segredos aqui — chaves de API entram como "secret" (Secret Manager).
+#
+# IA da restauração (Google Gemini / AI Studio):
+#  1. Crie a chave em https://aistudio.google.com/apikey
+#  2. Crie o segredo e conceda acesso ao backend:
+#       npx firebase-tools apphosting:secrets:set GEMINI_API_KEY --project <PROJETO>
+#     (ou Secret Manager no console + papel secretmanager.secretAccessor para
+#      a conta de serviço do backend, exibida nos detalhes dele)
+#  3. O rollout seguinte já nasce com GEMINI_API_KEY no ambiente de RUNTIME.
+#  Opcional: variável GEMINI_IMAGE_MODEL para trocar o modelo (padrão
+#  gemini-2.5-flash-image) sem alterar código.
+env:
+  - variable: GEMINI_API_KEY
+    secret: GEMINI_API_KEY
+    availability:
+      - RUNTIME
