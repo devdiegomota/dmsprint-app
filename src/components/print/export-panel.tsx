@@ -36,7 +36,7 @@ export function ExportPanel({
   const { toast } = useToast();
   const [format, setFormat] = useState<PdfImageFormat>("jpeg");
   const [quality, setQuality] = useState(95);
-  const [filename, setFilename] = useState(`impressa4-${spec.id}`);
+  const [filename, setFilename] = useState(`dms-print-${spec.id}`);
   const [exporting, setExporting] = useState(false);
   const [done, setDone] = useState<string | null>(null);
 
@@ -55,7 +55,7 @@ export function ExportPanel({
       // Deixa o browser pintar o estado de "gerando" antes do trabalho pesado
       await new Promise((r) => setTimeout(r, 50));
       const result = await exportSheetPdf(sheetCanvas, {
-        filename: filename.trim() || "impressa4-folha",
+        filename: filename.trim() || "dms-print-folha",
         format,
         quality: quality / 100,
       });
@@ -86,7 +86,7 @@ export function ExportPanel({
         <CardContent className="flex flex-col gap-5">
           <div className="grid gap-1.5">
             <Label htmlFor="fname">Nome do arquivo</Label>
-            <Input id="fname" value={filename} onChange={(e) => setFilename(e.target.value)} placeholder="impressa4-folha" />
+            <Input id="fname" value={filename} onChange={(e) => setFilename(e.target.value)} placeholder="dms-print-folha" />
           </div>
 
           <div className="grid gap-2">

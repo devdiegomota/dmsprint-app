@@ -66,8 +66,8 @@ export async function exportSheetPdf(
     const pdf = await PDFDocument.create();
     pdf.setTitle(filename.replace(/\.pdf$/i, ""));
     pdf.setSubject(`Impressão A4 300 DPI (${PRINT_DPI} ppp) — imposição para gráfica`);
-    pdf.setCreator("ImpressA4 — Montador de Folhas");
-    pdf.setProducer("ImpressA4 (pdf-lib)");
+    pdf.setCreator("DMS Print — Montador de Folhas");
+    pdf.setProducer("DMS Print (pdf-lib)");
 
     const image = await pdf.embedPng(dataUrl);
     const page = pdf.addPage([A4_PT.width, A4_PT.height]);
@@ -93,7 +93,7 @@ export async function exportSheetPdf(
   pdf.setProperties({
     title: filename.replace(/\.pdf$/i, ""),
     subject: `Impressão A4 300 DPI (${PRINT_DPI} ppp) — imposição para gráfica`,
-    creator: "ImpressA4 — Montador de Folhas",
+    creator: "DMS Print — Montador de Folhas",
   });
 
   pdf.save(filename);

@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Printer, RefreshCcw, Moon, Sun } from "lucide-react";
+import NextImage from "next/image";
+import { RefreshCcw, Moon, Sun } from "lucide-react";
+import logoLight from "@/assets/dms-print-logo.png";
+import logoDark from "@/assets/dms-print-logo-dark.png";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { StepNav } from "@/components/print/step-nav";
@@ -300,13 +303,26 @@ export default function Home() {
       <header className="sticky top-0 z-20 border-b bg-background/90 backdrop-blur">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-600 text-white shadow-sm">
-              <Printer className="h-5 w-5" aria-hidden />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold leading-tight">ImpressA4</h1>
-              <p className="text-xs text-muted-foreground">
-                Tratamento de arte &amp; imposição A4 300 DPI para gráfica rápida
+            <h1 className="flex items-center">
+              <span className="sr-only">DMS Print</span>
+              <NextImage
+                src={logoLight}
+                alt=""
+                priority
+                className="h-11 w-auto dark:hidden"
+              />
+              <NextImage
+                src={logoDark}
+                alt=""
+                priority
+                className="hidden h-11 w-auto dark:block"
+              />
+            </h1>
+            <div className="hidden border-l pl-3 sm:block">
+              <p className="text-xs leading-snug text-muted-foreground">
+                Tratamento de arte &amp; imposição A4 300 DPI
+                <br />
+                para gráfica rápida
               </p>
             </div>
           </div>

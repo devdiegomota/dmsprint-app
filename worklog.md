@@ -390,3 +390,41 @@ Real-ESRGAN). Descobertas da sondagem (`scripts/probe_onnx.ts`):
 **Commits:** `6b3ab55` (implementação), `d3e22ca` (semáforo serializado).
 **Observação:** o ONNX público da Qualcomm mudou de lugar em 21/10/2026 — se mudar de
 novo, basta ajustar `ESRGAN_MODEL_URL` no apphosting.yaml (env já suportada).
+
+## Task 23 — Identidade visual DMS Print: logo no app, favicon e Open Graph (2026-10-29)
+
+**Objetivo:** substituir a marca provisória "ImpressA4" (ícone de impressora âmbar +
+texto) pela logo oficial da DMS Print enviada pelo usuário (1254×1254, DMS azul-marinho
+/ PRINT laranja / slogan), mantendo o fluxo validado intacto.
+
+**Assets gerados** (`scripts/make_brand_assets.py`, PIL/numpy — recorte por blocos de
+linhas não-brancas + alfa por "brancura" com banda 180–245):
+- `src/assets/dms-print-logo.png` — DMS+PRINT empilhados (sem slogan), fundo
+  transparente (1136×463), para o header em tema claro.
+- `src/assets/dms-print-logo-dark.png` — mesma marca com a família azul (B≥R) recolorida
+  para branco; laranja preservado. Para o tema escuro.
+- `src/app/icon.png` (512², tile azul-marinho #011E40 com DMS branco) e
+  `src/app/apple-icon.png` (180²) — favicon via convenção de arquivos do App Router
+  (substitui o logo.svg externo do template).
+- `public/og-image.png` (1200×630, logo completa com slogan sobre branco) — cartão de
+  compartilhamento.
+
+**Código:**
+- `src/app/page.tsx`: header agora usa as duas variantes da logo via `next/image`
+  (estático, `dark:hidden`/`dark:block`), `h1` com texto `sr-only` "DMS Print" para
+  a11y/SEO, descritor separado por divisor fino (≥sm). Import renomeado para
+  `NextImage` — o `Image` do next sombreava o construtor global usado em
+  `fileToCanvas` (pego pelo tsc: TS2350/TS2554). Ícone `Printer` removido do header.
+- `src/app/layout.tsx`: `metadataBase` (URL de produção), título/descrição "DMS Print",
+  Open Graph pt_BR com `/og-image.png`; campo `icons` externo removido (convenção assume).
+- `src/lib/print/pdf.ts`: `setCreator`/`setProducer`/`creator` → "DMS Print — Montador
+  de Folhas" (metadados dos PDFs exportados).
+- `src/components/print/export-panel.tsx`: nome de arquivo padrão/fallback/placeholder
+  `impressa4-*` → `dms-print-*`.
+- Removido `public/logo.svg` (genérico do template, sem referências).
+
+**Validação:**
+- ESLint ✔ · tsc 0 erros em `src/` ✔ · build ✔ (rotas `/icon.png` e `/apple-icon.png`
+  registradas).
+- Standalone local (produção-idêntico): HTML com favicon/OG/duas variantes ✔; screenshot
+  agent-browser dos temas claro e escuro — logo legível e nítida nos dois ✔.
