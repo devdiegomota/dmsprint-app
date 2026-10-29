@@ -343,3 +343,50 @@ Work Log:
 
 Stage Summary:
 - Diagnostico fechado com evidencia empirica (5 IDs testados) + doc oficial: o bloqueio e da CARTEIRA da conta ($0, Prepay), nao de modelo. Nao existe free tier de imagem acessivel hoje nessa conta. App intacto e com mensagem clara; tres caminhos de reativacao documentados, um deles possivelmente ainda gratuito (chave em projeto novo).
+
+## Task 22 — Provedor ESRGAN local gratuito + fallback automático do Gemini (2026-10-29)
+
+**Contexto:** com a conta do AI Studio em US$ 0 (Task 21), todo modelo de imagem do Gemini
+responde 402. O usuário pediu alternativa gratuita SEM deixar o Gemini de lado: "quero
+implementar esrgan, gostei da ideia de manter o gemini quando tiver credito".
+
+**Decisão de arquitetura:** super-resolução 100% server-side com `onnxruntime-node` +
+Real-ESRGAN **General x4v3** (SRVGGNetCompact ~1,2M params, BSD-3-Clause, família oficial
+Real-ESRGAN). Descobertas da sondagem (`scripts/probe_onnx.ts`):
+- O ONNX saiu do HF `qualcomm/Real-ESRGAN-General-x4v3` (reorg de 21/10/2026) e hoje vive
+  em ZIP no bucket S3 público da Qualcomm AI Hub (~4,5 MB: `.onnx` + pesos externos `.data`).
+- I/O confirmado pelo `metadata.json`: entrada `image` [1,3,128,128] NCHW float32 0–1;
+  saída `upscaled_image` [1,3,512,512] (×4).
+- ~218–300 ms/tile no sandbox (1 thread), ~440 ms/tile no vCPU do Cloud Run.
+
+**Implementação:**
+- `src/lib/server/esrgan.ts`: download+unzip (fflate) do modelo para /tmp (cache por
+  instância), sessão ORT singleton (intraOp=1), tiles 128px com overlap 32 e clamp de
+  bordas (zero costuras — validado visualmente), conversão NCHW→RGB (bug de layout
+  corrigido no protótipo), retorno no TAMANHO DE ENTRADA (cliente já normaliza e recorta),
+  watchdog de tempo e semáforo **1 por vez + fila 2** (2 em paralelo no cpu=1 dobram o
+  tempo e violariam o watchdog). Nunca inventa conteúdo — vantagem frente a modelos
+  generativos para impressão.
+- `src/app/api/enhance-ai/route.ts` reescrita como despachante de provedores via
+  `AI_PROVIDER`: `auto` (padrão — Gemini primeiro; QUALQUER falha ex. 402 → ESRGAN local;
+  quando o crédito voltar o Gemini assume sozinho, sem mexer em nada), `esrgan` (só
+  local) e `gemini` (comportamento histórico). Orçamentos: dedicado 150 s; auto 80 s por
+  etapa (cliente aborta em 180 s). Em auto com dupla falha, o erro exibido é o do ESRGAN
+  (caminho gratuito é o mais acionável).
+- `next.config.ts`: `serverExternalPackages: [onnxruntime-node, sharp]` +
+  `outputFileTracingIncludes` para o `.so`/`.node` do ORT no standalone (validado: binários
+  presentes em `.next/standalone/node_modules`).
+- `apphosting.yaml`: `AI_PROVIDER=auto`, `memoryMiB 512→1024` (medido ~300 MB/inferência).
+- Dependências: `onnxruntime-node@1.31.1`, `fflate` (postinstall do ORT só baixa CUDA —
+  binários CPU já vêm no pacote; seguro para o Cloud Build).
+
+**Validação:**
+- Local standalone (node, produção-idêntico): smoke 864×1152 → 200 em 32 s, PNG íntegro,
+  log "auto: GEMINI_API_KEY ausente — usando super-resolução local" ✔
+- Produção (após rollout): 200 em 53,5 s (frio: +download do modelo) e 49,8 s (2ª chamada);
+  PNG 864×1152 com texto mais nítido, bordas limpas, cores fiéis, zero artefatos ✔
+- ESLint + tsc (src limpos) + build ✔. `work/` adicionado ao .gitignore.
+
+**Commits:** `6b3ab55` (implementação), `d3e22ca` (semáforo serializado).
+**Observação:** o ONNX público da Qualcomm mudou de lugar em 21/10/2026 — se mudar de
+novo, basta ajustar `ESRGAN_MODEL_URL` no apphosting.yaml (env já suportada).
