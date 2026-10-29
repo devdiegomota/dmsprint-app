@@ -23,16 +23,22 @@ runConfig:
 #  3. O rollout seguinte já nasce com GEMINI_API_KEY no ambiente de RUNTIME.
 #  Opcional: variável GEMINI_IMAGE_MODEL para trocar o modelo (padrão
 #  gemini-2.5-flash-image) sem alterar código.
-#  2026-10-29: IDs "GA" (gemini-2.5-flash-image, gemini-3.1-flash-lite-image)
-#  exigem billing (HTTP 402). gemini-2.5-flash-image-preview = 404 (aposentado).
-#  Próximo candidato: gemini-nano-banana-2.1 (painel ai.dev/rate-limit: 100 RPM /
-#  1K RPD; mais novo da família, tipografia melhorada).
+#  2026-10-29 — MATRIZ DE MODELOS DE IMAGEM TESTADA EM PRODUÇÃO (chave AI Studio):
+#    gemini-2.5-flash-image          → 402 (exige crédito)
+#    gemini-3.1-flash-lite-image     → 402
+#    gemini-nano-banana-2.1          → 402
+#    gemini-3.1-flash-image-preview  → 402
+#    gemini-2.5-flash-image-preview  → 404 (aposentado pelo Google)
+#  CAUSA (doc billing): carteira pré-paga da conta em US$ 0 bloqueia TODAS as
+#  chaves de TODOS os projetos ligados a ela, em qualquer modelo de imagem.
+#  Padrão mantido: gemini-2.5-flash-image (validado com arte real) — volta a
+#  funcionar sozinho quando houver crédito/chave nova; nada a mudar no código.
 env:
   - variable: GEMINI_API_KEY
     secret: GEMINI_API_KEY
     availability:
       - RUNTIME
   - variable: GEMINI_IMAGE_MODEL
-    value: gemini-3.1-flash-image-preview
+    value: gemini-2.5-flash-image
     availability:
       - RUNTIME

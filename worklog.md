@@ -326,3 +326,20 @@ Work Log:
 
 Stage Summary:
 - "Gemini Auto" é recurso do app, não da API; Lite também cobrou (402 × 8 sondas). IA segue em produção com mensagens claras e sem quebrar o fluxo. Dois caminhos definidos: rate-limit dashboard (grátis, se existir allowance) ou chave pós-paga no projeto Firebase que já tem billing (sem recarga). Aguardando usuário.
+
+---
+Task ID: 21
+Agent: main (Z.ai)
+Task: Cacar free tier de imagem para a chave AI Studio do usuario (sem recarga de creditos): investigar "Gemini Auto", testar candidatos de modelo via producao, conclusao e plano.
+
+Work Log:
+- USUARIO colou o painel ai.dev/rate-limit da conta dele: quota EXIBIDA para modelos de imagem existe (NB 2.5: 500 RPM/2K RPD; NB2: 1K RPD; NB2.1: 1K RPD; Pro: 250 RPD) — mas e o limite teorico, nao entitlement.
+- "Gemini Auto" confirmado como recurso do APP (roteamento automatico), inexistente na API.
+- MATRIX REAL testada em producao via GEMINI_IMAGE_MODEL (commit → rollout → sondas E2E): gemini-2.5-flash-image 402; gemini-3.1-flash-lite-image 402; gemini-2.5-flash-image-preview 404 (ID aposentado — o nome no painel e so rotulo); gemini-nano-banana-2.1 402 (modelo existe); gemini-3.1-flash-image-preview 402. NENHUM modelo de imagem funciona com a chave atual.
+- CAUSA RAIZ (doc oficial de billing, lida hoje): com o novo plano Prepay do AI Studio, saldo US$ 0 => "all API keys in all projects linked to that billing account stop working with HTTP 402 until credits are added". As quotas do painel valem quando o saldo existe. Note: os creditos de boas-vindas de US$ 300 NAO cobrem Gemini API.
+- Estado final: apphosting.yaml revertido para gemini-2.5-flash-image (baseline validado com arte real na Task 12) com a matriz documentada em comentario — quando houver credito/chave nova, a IA volta sem nenhuma mudanca de codigo. Commits: 1a99fad (preview), b41f947 (NB2.1), c223a88 (NB2 preview) + este.
+- Firebase CLI segue deslogado (para o proximo secrets:set, novo login com codigo do usuario via scripts/run_detached.py).
+- OPCOES deixadas para o usuario: (A) chave nova em PROJETO NOVO no AI Studio (1 min, gratis — pode escapar da carteira $0 se o vínculo for por projeto); (B) recarga minima US$ 5 quando possivel (creditos validam 12 meses, ~100-250 restauracoes); (C) chave pos-paga no projeto dmsprintapp (console Cloud → ativar Generative Language API → criar chave) — fatura mensal na conta que ja paga o Firebase, sem recarga; risco: se a conta de faturamento for a mesma agora em Prepay, tambem 402a; (D) IA desligada por ora — app 100% funcional, botao com mensagem amigavel.
+
+Stage Summary:
+- Diagnostico fechado com evidencia empirica (5 IDs testados) + doc oficial: o bloqueio e da CARTEIRA da conta ($0, Prepay), nao de modelo. Nao existe free tier de imagem acessivel hoje nessa conta. App intacto e com mensagem clara; tres caminhos de reativacao documentados, um deles possivelmente ainda gratuito (chave em projeto novo).
