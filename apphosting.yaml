@@ -33,6 +33,6 @@ env:
     availability:
       - RUNTIME
   - variable: GEMINI_IMAGE_MODEL
-    value: gemini-nano-banana-2.1
+    value: gemini-3.1-flash-image-preview
     availability:
       - RUNTIME
