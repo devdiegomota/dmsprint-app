@@ -309,3 +309,20 @@ Work Log:
 
 Stage Summary:
 - Task 18 confirmado 100% em produção e a chave nova implantada (secret v2 + rollout manual concluídos sem precisar de push). Última milha do E2E depende só de billing no AI Studio (402). Rota agora explica o 402 em PT-BR para quem usa o app. Próximo passo: usuário ativa a cobrança → eu re-rodo o E2E (bun scripts/test_ai_restore.ts download/ai-restore-smoke.png <out> 1440x720 https://dmsprint-app--dmsprintapp.us-east4.hosted.app).
+
+---
+Task ID: 20
+Agent: main (Z.ai)
+Task: Destravar a IA sem recarga pré-paga: investigar "Gemini Auto" (pedido do usuário), procurar modelo de imagem com free tier e testar via produção.
+
+Work Log:
+- USUÁRIO informou que o AI Studio pede RECARGA DE CRÉDITO (modelo pré-pago novo) e que não pode pagar agora; citou "Gemini Auto" no app do Gemini como modelo que usa grátis e sem marca d'água.
+- PESQUISA: "Gemini Auto" NÃO existe na API do Gemini (models list oficial não tem nenhum modelo "auto") — é o roteamento automático do APP de consumidor, produto separado da API. Na API (out/2026) a família de imagem é: gemini-nano-banana-2.1, gemini-3.1-flash-image, gemini-3.1-flash-lite-image, gemini-3-pro-image, gemini-2.5-flash-image. Docs oficiais (models/pricing/rate-limits/image-generation) não publicam mais os números do free tier — mandam ver "ai.dev/rate-limit" logado (dashboard por chave).
+- TESTE PRÁTICO do candidato mais provável de free tier: apphosting.yaml ganhou GEMINI_IMAGE_MODEL=gemini-3.1-flash-lite-image (commit 66c4cbd, push → rollout automático). 8 sondas E2E em ~12 min: TODAS 402 → Nano Banana 2 Lite também exige crédito. Conclusão provisória: na conta do usuário, TODOS os modelos de imagem testados (2.5-flash-image e 3.1-flash-lite-image) estão sem allowance gratuito.
+- Firebase CLI: login expirou durante a sessão (secrets:set/rollouts:create funcionaram cedo; backends:get falhou com "Failed to authenticate") — para o próximo secrets:set será preciso novo login (detached + FIFO, scripts/run_detached.py).
+- PLANO A (grátis): usuário abre ai.dev/rate-limit com a conta da chave → se ALGUM modelo de imagem aparecer com limite > 0, aponto GEMINI_IMAGE_MODEL para ele (1 commit + rollout).
+- PLANO B (pós-paga, sem recarga): o projeto Firebase dmsprintapp JÁ tem billing ativo (App Hosting roda em Cloud Run/Blaze). Ativar a "Generative Language API" nesse projeto + criar API key no console do Cloud → chave de PAID TIER pós-pago (fatura na conta que já existe; ~US$ 0,039/imagem; créditos de trial de US$ 300, se ainda ativos, absorvem). A rota funciona SEM mudança de código — só trocar o valor do secret (nova versão) + rollout.
+- apphosting.yaml permanece apontando para o Lite até resolver; quando houver chave paga, testar 2.5-flash-image (baseline validado com arte real) contra gemini-nano-banana-2.1 (doc promete tipografia melhor) e fixar o melhor.
+
+Stage Summary:
+- "Gemini Auto" é recurso do app, não da API; Lite também cobrou (402 × 8 sondas). IA segue em produção com mensagens claras e sem quebrar o fluxo. Dois caminhos definidos: rate-limit dashboard (grátis, se existir allowance) ou chave pós-paga no projeto Firebase que já tem billing (sem recarga). Aguardando usuário.
