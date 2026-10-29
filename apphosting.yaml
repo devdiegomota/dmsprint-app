@@ -23,8 +23,14 @@ runConfig:
 #  3. O rollout seguinte já nasce com GEMINI_API_KEY no ambiente de RUNTIME.
 #  Opcional: variável GEMINI_IMAGE_MODEL para trocar o modelo (padrão
 #  gemini-2.5-flash-image) sem alterar código.
+#  2026-10-29: gemini-2.5-flash-image exige billing (free tier 0 → HTTP 402);
+#  tentativa de modelo com cota gratuita: gemini-3.1-flash-lite-image (Nano Banana 2 Lite).
 env:
   - variable: GEMINI_API_KEY
     secret: GEMINI_API_KEY
+    availability:
+      - RUNTIME
+  - variable: GEMINI_IMAGE_MODEL
+    value: gemini-3.1-flash-lite-image
     availability:
       - RUNTIME
