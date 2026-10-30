@@ -34,7 +34,9 @@ export function ExportPanel({
   onCutLineChange: (c: CutLineConfig) => void;
 }) {
   const { toast } = useToast();
-  const [format, setFormat] = useState<PdfImageFormat>("jpeg");
+  // PNG pré-selecionado: sem perdas (pixel a pixel idêntico à folha) — a auditoria da Task 24
+  // confirmou PSNR ∞ no embed FlateDecode; JPEG continua disponível para quem quiser arquivo menor.
+  const [format, setFormat] = useState<PdfImageFormat>("png");
   const [quality, setQuality] = useState(100);
   const [filename, setFilename] = useState(`dms-print-${spec.id}`);
   const [exporting, setExporting] = useState(false);
@@ -98,8 +100,8 @@ export function ExportPanel({
               >
                 <RadioGroupItem id="fmt-jpeg" value="jpeg" className="mt-0.5" />
                 <span>
-                  <span className="block text-sm font-semibold">JPEG (recomendado)</span>
-                  <span className="block text-xs text-muted-foreground">Arquivo menor, ideal para artes com fotos. Qualidade {quality}% — 100% é o máximo do formato.</span>
+                  <span className="block text-sm font-semibold">JPEG (arquivo menor)</span>
+                  <span className="block text-xs text-muted-foreground">Ideal para artes com fotos. Qualidade {quality}% — 100% é o máximo do formato.</span>
                 </span>
               </label>
               <label
@@ -108,8 +110,8 @@ export function ExportPanel({
               >
                 <RadioGroupItem id="fmt-png" value="png" className="mt-0.5" />
                 <span>
-                  <span className="block text-sm font-semibold">PNG (sem perdas)</span>
-                  <span className="block text-xs text-muted-foreground">Máxima nitidez possível: pixel a pixel idêntico à folha. Ideal para textos e chapados. Arquivo maior.</span>
+                  <span className="block text-sm font-semibold">PNG (recomendado)</span>
+                  <span className="block text-xs text-muted-foreground">Máxima nitidez possível: pixel a pixel idêntico à folha. Ideal para textos, chapados e fotos. Arquivo maior.</span>
                 </span>
               </label>
             </RadioGroup>

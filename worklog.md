@@ -465,3 +465,18 @@ linhas não-brancas + alfa por "brancura" com banda 180–245):
   encoder do navegador não é controlável via JS de qualquer forma.
 
 **Validação:** ESLint ✔ · tsc 0 erros em `src/` ✔ (dupla checagem) · build ✔.
+
+## Task 25 — PNG pré-selecionado na tela de exportação (2026-10-30)
+
+**Mudança** (`export-panel.tsx`):
+- Estado inicial do formato: `"jpeg"` → `"png"` — a tela de exportar já abre com a
+  opção de máxima nitidez marcada (pedido do usuário: sempre entregar o melhor para
+  a gráfica; a auditoria da Task 24 confirmou PSNR ∞ no embed PNG/FlateDecode).
+- Rótulos atualizados para refletir o novo padrão: PNG = "PNG (recomendado)" e
+  JPEG = "JPEG (arquivo menor)" (alternativa para artes com fotos quando o tamanho
+  do arquivo importar). Slider de qualidade JPEG continua 80–100, desabilitado
+  visualmente enquanto PNG está marcado.
+- Nenhuma mudança de pipeline: `exportSheetPdf` já aceitava `format: "png"` e
+  embute sem perdas (validado na Task 24).
+
+**Validação:** ESLint ✔ · tsc 0 erros em `src/` ✔ · build ✔.
