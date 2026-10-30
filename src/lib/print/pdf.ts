@@ -9,6 +9,13 @@
  *  - JPEG  → jsPDF (embutimento JPEG/DCTDecode, arquivo compacto).
  *  - PNG   → pdf-lib (embutimento PNG/FlateDecode realmente sem perdas — o jsPDF
  *            re-codificaria para JPEG, o que invalidaria a opção lossless).
+ *
+ * Auditoria empírica (Task 24 — scripts/test_pdf_quality.mjs):
+ *  - jsPDF processJPEG IGNORA o parâmetro de compressão: os bytes do JPEG de
+ *    entrada são embutidos byte-a-byte (md5 idêntico, FAST e NONE). O "NONE"
+ *    abaixo documenta a intenção de não recodificar nada.
+ *  - Imagem embutida: 2480×3508 @ 300×300 ppi (metadata física correta no PDF).
+ *  - PSNR contra o original: JPEG q95 57,1 dB · q100 63,3 dB · PNG ∞ (idêntico).
  */
 
 import { jsPDF } from "jspdf";
@@ -20,7 +27,7 @@ export type PdfImageFormat = "jpeg" | "png";
 export interface ExportOptions {
   filename: string;
   format: PdfImageFormat;
-  /** Qualidade JPEG (0.9–1.0). Ignorado em PNG. */
+  /** Qualidade JPEG (0.8–1.0). Ignorado em PNG. */
   quality?: number;
 }
 
@@ -79,7 +86,7 @@ export async function exportSheetPdf(
   }
 
   // ---- Caminho JPEG (jsPDF / DCTDecode) ----
-  const quality = options.quality ?? 0.95;
+  const quality = options.quality ?? 1;
   const dataUrl = sheet.toDataURL("image/jpeg", quality);
 
   const pdf = new jsPDF({
@@ -89,7 +96,10 @@ export async function exportSheetPdf(
     compress: true,
   });
 
-  pdf.addImage(dataUrl, "JPEG", 0, 0, 210, 297, undefined, "FAST");
+  // "NONE": jsPDF NÃO recodifica JPEG (processJPEG repassa os bytes com DCTDecode —
+  // auditado no jspdf 4.2.1 e validado por md5). O parâmetro explícito documenta
+  // que nenhum re-encode deve acontecer aqui.
+  pdf.addImage(dataUrl, "JPEG", 0, 0, 210, 297, undefined, "NONE");
   pdf.setProperties({
     title: filename.replace(/\.pdf$/i, ""),
     subject: `Impressão A4 300 DPI (${PRINT_DPI} ppp) — imposição para gráfica`,

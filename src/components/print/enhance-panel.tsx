@@ -311,7 +311,6 @@ export function EnhancePanel({
                 <div className="flex flex-wrap items-center gap-3">
                   <Button
                     onClick={handleAiRestore}
-                    disabled={!aiWorthIt}
                     className="bg-amber-600 text-white hover:bg-amber-700"
                   >
                     <Sparkles className="h-4 w-4" aria-hidden />
@@ -320,7 +319,7 @@ export function EnhancePanel({
                   <p className="text-xs leading-relaxed text-muted-foreground">
                     {aiWorthIt
                       ? `Resolução estimada: ≈${analysis.effectiveDpi} DPI hoje → ≈${aiDpi} DPI após a restauração.`
-                      : `Sem ganho estimado: a arte já está em ≈${analysis.effectiveDpi} DPI e a IA entrega no máximo ≈${aiDpi} DPI para o corte de ${fmtMm(spec.widthMm)} × ${fmtMm(spec.heightMm)} mm.`}
+                      : `Ganho de resolução estimado baixo (≈${analysis.effectiveDpi} DPI hoje; a IA entrega ≈${aiDpi} DPI para este corte) — liberado mesmo assim para você testar e comparar a nitidez.`}
                   </p>
                 </div>
                 {aiView === "error" && (

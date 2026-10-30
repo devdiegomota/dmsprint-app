@@ -81,7 +81,9 @@ export function buildAiInput(source: HTMLCanvasElement, plan: AiPlacement): stri
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(source, plan.dx, plan.dy, plan.drawW, plan.drawH);
-  return canvas.toDataURL("image/jpeg", 0.92);
+  // PNG sem perdas: a arte que a IA recebe não deve carregar artefatos JPEG —
+  // o modelo trabalha a partir do pixel exato que o cliente enviou.
+  return canvas.toDataURL("image/png");
 }
 
 /**

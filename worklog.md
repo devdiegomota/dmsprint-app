@@ -428,3 +428,40 @@ linhas não-brancas + alfa por "brancura" com banda 180–245):
   registradas).
 - Standalone local (produção-idêntico): HTML com favicon/OG/duas variantes ✔; screenshot
   agent-browser dos temas claro e escuro — logo legível e nítida nos dois ✔.
+
+## Task 24 — Botão de IA sempre habilitado + auditoria de qualidade dos PDFs (2026-10-30)
+
+**A) Restauração com IA liberada para teste comparativo** (`enhance-panel.tsx`):
+- Removido `disabled={!aiWorthIt}` — o botão "Restaurar com IA" agora está sempre
+  habilitado (proteção contra duplo clique já existe no handler). Texto do convite
+  atualizado: quando o ganho estimado é baixo, diz "liberado mesmo assim para você
+  testar e comparar a nitidez" em vez de bloquear.
+
+**B) Auditoria da cadeia de exportação (pedido: "máxima qualidade e nitidez")**:
+- Ferramenta nova: `scripts/test_pdf_quality.mjs` — folha A4 sintética de estresse
+  2480×3508 (texto 10–25 px ≈ 2,4–6 pt, linhas hairline 1–4 px, texto colorido sobre
+  branco, gradiente), JPEG q95/q100, jsPDF FAST/NONE, pdf-lib PNG; extração das
+  imagens embutidas com poppler `pdfimages`; PSNR pixel a pixel; md5.
+- **Achados (jspdf 4.2.1, conferido no fonte de processJPEG):**
+  - `processJPEG` IGNORA o parâmetro de compressão: os bytes do JPEG de entrada são
+    embutidos **byte-a-byte** (md5 de entrada == embutido, em FAST e NONE).
+    O "FAST" histórico do addImage era um no-op — nenhum re-encode jamais ocorreu.
+  - Imagem embutida: **2480×3508 @ 300×300 ppi** (metadata física correta no PDF).
+  - PSNR contra o original: **JPEG q95 = 57,1 dB · q100 = 63,3 dB · PNG = ∞**
+    (pixel a pixel idêntico — FlateDecode lossless confirmado).
+- **Mudanças:**
+  - `pdf.ts`: `addImage(..., "FAST")` → `"NONE"` (intenção documentada); default de
+    qualidade `0.95` → `1`; cabeçalho documenta a auditoria.
+  - `export-panel.tsx`: qualidade JPEG default **95 → 100** (slider mantém 80–100);
+    rótulos esclarecem "100% é o máximo do formato" e PNG como "pixel a pixel
+    idêntico à folha".
+  - `ai-restore.ts`: entrada da IA de JPEG 0.92 → **PNG sem perdas** (a IA trabalha
+    no pixel exato; rota já aceita data:image/* e ESRGAN decodifica via sharp).
+- Pipeline canvas: auditado — únicas reamostragens reais usam
+  `imageSmoothingQuality: "high"` (enhance/ai-restore/analysis); cópias 1:1
+  (upload, recorte, imposição) rodam sem smoothing, sem perda.
+- Observação: teste do encoder do Chromium (agent-browser) não rodou — daemon
+  instável no sandbox; a auditoria Node usou as mesmas bibliotecas do app, e o
+  encoder do navegador não é controlável via JS de qualquer forma.
+
+**Validação:** ESLint ✔ · tsc 0 erros em `src/` ✔ (dupla checagem) · build ✔.

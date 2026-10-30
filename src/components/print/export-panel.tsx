@@ -35,7 +35,7 @@ export function ExportPanel({
 }) {
   const { toast } = useToast();
   const [format, setFormat] = useState<PdfImageFormat>("jpeg");
-  const [quality, setQuality] = useState(95);
+  const [quality, setQuality] = useState(100);
   const [filename, setFilename] = useState(`dms-print-${spec.id}`);
   const [exporting, setExporting] = useState(false);
   const [done, setDone] = useState<string | null>(null);
@@ -99,7 +99,7 @@ export function ExportPanel({
                 <RadioGroupItem id="fmt-jpeg" value="jpeg" className="mt-0.5" />
                 <span>
                   <span className="block text-sm font-semibold">JPEG (recomendado)</span>
-                  <span className="block text-xs text-muted-foreground">Arquivo menor, ideal para artes com fotos. Qualidade {quality}%.</span>
+                  <span className="block text-xs text-muted-foreground">Arquivo menor, ideal para artes com fotos. Qualidade {quality}% — 100% é o máximo do formato.</span>
                 </span>
               </label>
               <label
@@ -109,7 +109,7 @@ export function ExportPanel({
                 <RadioGroupItem id="fmt-png" value="png" className="mt-0.5" />
                 <span>
                   <span className="block text-sm font-semibold">PNG (sem perdas)</span>
-                  <span className="block text-xs text-muted-foreground">Máxima fidelidade para textos e chapados. Arquivo maior.</span>
+                  <span className="block text-xs text-muted-foreground">Máxima nitidez possível: pixel a pixel idêntico à folha. Ideal para textos e chapados. Arquivo maior.</span>
                 </span>
               </label>
             </RadioGroup>
