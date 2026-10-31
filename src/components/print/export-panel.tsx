@@ -42,12 +42,19 @@ export function ExportPanel({
   const [exporting, setExporting] = useState(false);
   const [done, setDone] = useState<string | null>(null);
 
-  // Linhas de corte e folgas derivadas do layout (fonte única da matemática).
-  const twoCut = spec.gapMode === "two-cut" ? computeLayout(spec, { bottomGuardMm }) : null;
-  const cutXMm = twoCut ? pxToMm((twoCut.colX[0] + twoCut.cellWidthPx + twoCut.colX[1]) / 2) : 0;
-  const cutYMm = twoCut ? pxToMm((twoCut.rowY[0] + twoCut.cellHeightPx + twoCut.rowY[1]) / 2) : 0;
-  const cutWhiteLatMm = twoCut ? pxToMm(twoCut.gapXPx / 2) : 0;
-  const cutWhiteVertMm = twoCut ? pxToMm(twoCut.gapYPx / 2) : 0;
+  // Linhas de corte e folgas derivadas do layout (fonte única da matemática) — para os
+  // modos com faixas brancas de corte ("two-cut" 2 × 2 e "multi-cut" 2 × 3).
+  const isCutGrid = spec.gapMode === "two-cut" || spec.gapMode === "multi-cut";
+  const grid = isCutGrid ? computeLayout(spec, { bottomGuardMm }) : null;
+  const cutXMm = grid ? pxToMm((grid.colX[0] + grid.cellWidthPx + grid.colX[1]) / 2) : 0;
+  const cutYMmList = grid
+    ? grid.rowY.slice(0, -1).map((y, i) => pxToMm((y + grid.cellHeightPx + grid.rowY[i + 1]) / 2))
+    : [];
+  const cutWhiteLatMm = grid ? pxToMm(grid.gapXPx / 2) : 0;
+  const cutWhiteVertMm = grid ? pxToMm(grid.gapYPx / 2) : 0;
+  const totalCuts = 1 + cutYMmList.length;
+  const outerWhiteLatMm = grid ? pxToMm(grid.outerLeftPx) : 0;
+  const outerWhiteVertMm = grid ? pxToMm(Math.min(grid.outerTopPx, grid.outerBottomPx)) : 0;
 
   const handleExport = async () => {
     if (!sheetCanvas || exporting) return;
@@ -148,14 +155,15 @@ export function ExportPanel({
                 Imprimir em <strong className="text-foreground">escala 100%</strong> (tamanho real), desativando
                 &quot;ajustar à área imprimível&quot;.
               </li>
-              {spec.gapMode === "two-cut" && (
+              {grid && (
                 <li className="flex gap-2">
                   <Printer className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
                   <span>
-                    Impressora doméstica: o panfleto já sai com ≈3,5 mm (lat.) e ≈3,0 mm (topo/base) de branco nas
-                    bordas da folha — imprima no <strong className="text-foreground">modo normal</strong>, sem precisar
-                    de &quot;Sem margens&quot; (validado em impressora real). Se ainda morder a arte em alguma borda,
-                    aumente o <strong className="text-foreground">ajuste para a sua impressora</strong> no bloco abaixo
+                    Impressora doméstica: a folha já sai com ≈{fmtMm(outerWhiteLatMm)} mm (lat.) e ≈{fmtMm(outerWhiteVertMm)} mm
+                    (topo/base) de branco nas bordas — imprima no <strong className="text-foreground">modo normal</strong>,
+                    sem precisar de &quot;Sem margens&quot; (mesmo perfil de bordas do panfleto de 4, validado em
+                    impressora real). Se ainda morder a arte em alguma borda, aumente o{" "}
+                    <strong className="text-foreground">ajuste para a sua impressora</strong> no bloco abaixo
                     e gere o PDF novamente.
                   </span>
                 </li>
@@ -169,8 +177,10 @@ export function ExportPanel({
                 {spec.gapMode === "glued"
                   ? `Corte na guilhotina: separe tiras de 2 cartões (corte no meio do bloco) e depois corte cada tira a cada ${fmtMm(spec.heightMm)} mm.`
                   : spec.gapMode === "two-cut"
-                    ? `Apenas 2 cortes na guilhotina: 1 vertical a ${fmtMm(cutXMm)} mm da lateral e 1 horizontal a ${fmtMm(cutYMm)} mm do topo — passe a lâmina no meio da faixa branca central. Cada peça sai com ≈${fmtMm(cutWhiteLatMm)} mm (lat.) × ≈${fmtMm(cutWhiteVertMm)} mm (vert.) de borda branca na linha de corte.`
-                    : "Corte seguindo a borda branca ao redor de cada panfleto (guia de ≈3 mm a partir da borda da folha)."}
+                    ? `Apenas 2 cortes na guilhotina: 1 vertical a ${fmtMm(cutXMm)} mm da lateral e 1 horizontal a ${fmtMm(cutYMmList[0])} mm do topo — passe a lâmina no meio da faixa branca central. Cada peça sai com ≈${fmtMm(cutWhiteLatMm)} mm (lat.) × ≈${fmtMm(cutWhiteVertMm)} mm (vert.) de borda branca na linha de corte.`
+                    : spec.gapMode === "multi-cut"
+                      ? `Apenas ${totalCuts} cortes na guilhotina: 1 vertical a ${fmtMm(cutXMm)} mm da lateral e ${cutYMmList.length} horizontais a ${cutYMmList.map((v) => fmtMm(v)).join(" e ")} mm do topo — passe a lâmina no meio de cada faixa branca. Cada peça sai com ≈${fmtMm(cutWhiteLatMm)} mm (lat.) × ≈${fmtMm(cutWhiteVertMm)} mm (vert.) de borda branca na linha de corte.`
+                      : "Corte seguindo a borda branca ao redor de cada panfleto (guia de ≈3 mm a partir da borda da folha)."}
               </li>
               <li className="flex gap-2">
                 <Printer className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
@@ -190,7 +200,7 @@ export function ExportPanel({
               )}
             </ul>
 
-            {spec.gapMode === "two-cut" && (
+            {grid && (
               <div className="mt-4 rounded-lg border bg-muted/40 p-4">
                 <div className="flex items-baseline justify-between gap-2">
                   <Label htmlFor="bottom-guard" className="text-sm font-semibold">
@@ -214,7 +224,7 @@ export function ExportPanel({
                 <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
                   Cada impressora tem uma zona não imprimível diferente na base. O padrão de 3,0 mm foi validado em
                   impressora real: sobra ≈3,0 mm de branco no topo e na base da folha. Suba este valor em passos de
-                  0,5 mm só se a base ainda for mordida — o branco extra sai do topo, que fica mais justo. As duas
+                  0,5 mm só se a base ainda for mordida — o branco extra sai do topo, que fica mais justo. As
                   linhas de corte da guilhotina acompanham o ajuste automaticamente.
                 </p>
               </div>

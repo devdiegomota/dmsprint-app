@@ -480,3 +480,39 @@ linhas não-brancas + alfa por "brancura" com banda 180–245):
   embute sem perdas (validado na Task 24).
 
 **Validação:** ESLint ✔ · tsc 0 erros em `src/` ✔ · build ✔.
+
+## Task 26 — Novo produto: Panfleto Quadrado 92 × 92 mm (6 por folha A4) (2026-10-31)
+
+**Estudo do tamanho (pedido: "estude o tamanho ideal")** — grade 2 × 3 no A4 (210 × 297 mm):
+- 3 quadrados empilhados: 297 − 3s = folga vertical para 2 faixas de corte + topo + base.
+- 92 × 92 mm é o ponto ótimo: reproduz EXATAMENTE o perfil de segurança VALIDADO do
+  panfleto de 4 (3,5 mm de branco por peça na linha de corte; ≈3,5 mm de branco no
+  topo/base da folha com a guarda padrão de 3,0 mm). Largura: 2 × 92 + 7 (faixa de
+  corte) = 191 mm → 9,5 mm de branco em cada lateral (onde a lâmina não passa).
+- Alternativas apresentadas ao usuário: 95 × 95 (máximo, mas o branco de corte cai para
+  ~1,5–2,1 mm e o topo para ~0,5 mm — a lâmina mordiria a arte) e 90 × 90 (moldura
+  generosa de ~6,5 mm topo/base). Usuário escolheu 92 × 92.
+
+**Implementação:**
+- `constants.ts`: produto `"panfleto-quadrado"` (92 × 92, 6 por folha, 2 × 3) e novo
+  `gapMode: "multi-cut"` (documentado: mesma lógica do two-cut para 3+ linhas).
+- `imposition.ts`: nova `multiCutRows()` — lâmina no MEIO de cada faixa branca entre
+  linhas (folga até 3,5 mm/peça, mesmo teto do two-cut), folga externa distribuída
+  SIMETRICAMENTE entre topo e base (base parte da guarda de impressora ajustável).
+  `computeLayout` e `describeLayout` com branch multi-cut (cortes: 1 vertical + n−1
+  horizontais, posições listadas).
+- `page.tsx`: sem mudanças — pipeline genérico (productPixelSize, renderImposedSheet,
+  guarda e linha de corte já fluem por spec).
+- `upload-panel.tsx`: LayoutDiagram GENERALIZADO (células proporcionais ao spec, fim dos
+  hardcodes por produto) + ícone Square para o novo produto.
+- `preview-panel.tsx`: texto de espaçamento com branch multi-cut (lista os 2 cortes
+  horizontais com posições reais).
+- `export-panel.tsx`: checklist generalizado para os 2 modos de grade (`grid`): item da
+  impressora doméstica com margens calculadas do layout (não mais hardcoded), instrução
+  "Apenas 3 cortes (1 vertical + 2 horizontais)" com posições, e o ajuste de impressora
+  (guarda de base) agora aparece também no modo multi-cut.
+- Verificação numérica (node): cortes em 105,0 mm (vert.) e 99,0 / 198,0 mm (horiz.);
+  branco de 3,47 mm por peça no corte; bordas 9,48 mm lat. / 3,47 mm topo / 3,56 mm
+  base; somas exatas 2480 × 3508 px; guardas 0 e 5 mm estáveis.
+
+**Validação:** ESLint ✔ · tsc 0 erros em `src/` ✔ · build ✔.

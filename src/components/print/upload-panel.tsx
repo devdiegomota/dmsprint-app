@@ -1,25 +1,26 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { CreditCard, FileImage, Scan, Loader2, ImageIcon } from "lucide-react";
+import { CreditCard, FileImage, Scan, Loader2, ImageIcon, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { PRODUCTS, type ProductId, A4, productPixelSize, fmtMm } from "@/lib/print/constants";
 
-/** Mini-diagrama da imposição (grade) para o produto. */
+/** Mini-diagrama da imposição (grade) para o produto — derivado das medidas do spec. */
 function LayoutDiagram({ product }: { product: ProductId }) {
   const spec = PRODUCTS[product];
   const cells = Array.from({ length: spec.unitsPerSheet });
-  const aspect = product === "cartao-visita" ? "aspect-[21/29.7]" : "aspect-[210/297]";
-  const cellHeight = product === "cartao-visita" ? "h-[13%]" : "h-[42%]";
-  const cellWidth = "w-[42%]";
+  // Células proporcionais à folha (fator 0,88 compensa padding + gaps do flex para a
+  // grade caber sempre no quadro, em qualquer produto).
+  const cellWidth = `${((spec.widthMm / A4.widthMm) * 100 * 0.88).toFixed(1)}%`;
+  const cellHeight = `${((spec.heightMm / A4.heightMm) * 100 * 0.88).toFixed(1)}%`;
   return (
-    <div className={cn("relative mx-auto w-20 border border-dashed border-muted-foreground/50 bg-white/90", aspect)}>
-      <div className="absolute inset-0 flex flex-wrap items-center justify-center gap-[2px] p-[3px]">
+    <div className="relative mx-auto w-20 aspect-[210/297] border border-dashed border-muted-foreground/50 bg-white/90">
+      <div className="absolute inset-0 flex flex-wrap content-center items-center justify-center gap-[2px] p-[3px]">
         {cells.map((_, i) => (
-          <div key={i} className={cn("bg-amber-600/70", cellWidth, cellHeight)} />
+          <div key={i} className="bg-amber-600/70" style={{ width: cellWidth, height: cellHeight }} />
         ))}
       </div>
     </div>
@@ -108,6 +109,8 @@ export function UploadPanel({
                   <p className="flex items-center justify-center gap-1.5 font-semibold">
                     {id === "cartao-visita" ? (
                       <CreditCard className="h-4 w-4 text-amber-600" aria-hidden />
+                    ) : id === "panfleto-quadrado" ? (
+                      <Square className="h-4 w-4 text-amber-600" aria-hidden />
                     ) : (
                       <FileImage className="h-4 w-4 text-amber-600" aria-hidden />
                     )}

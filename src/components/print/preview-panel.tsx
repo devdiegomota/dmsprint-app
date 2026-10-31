@@ -47,6 +47,10 @@ export function PreviewPanel({
   // Linhas de corte = meio da faixa branca central de cada eixo (fonte única: layout).
   const cutXMm = pxToMm((layout.colX[0] + layout.cellWidthPx + layout.colX[1]) / 2);
   const cutYMm = pxToMm((layout.rowY[0] + layout.cellHeightPx + layout.rowY[1]) / 2);
+  // No modo multi-cut há (linhas − 1) cortes horizontais — posições de todos eles.
+  const cutYMmList = layout.rowY
+    .slice(0, -1)
+    .map((y, i) => pxToMm((y + layout.cellHeightPx + layout.rowY[i + 1]) / 2));
 
   // Ampliação 1:1 do canto da primeira peça — o fio de ≈0,17 mm é pequeno demais
   // para enxergar na folha reduzida; aqui ele aparece em tamanho real.
@@ -219,6 +223,15 @@ export function PreviewPanel({
                     Layout de <strong>2 cortes</strong>: 1 vertical a <strong>{fmtMm(cutXMm)} mm</strong> da lateral e 1
                     horizontal a <strong>{fmtMm(cutYMm)} mm</strong> do topo — passe a lâmina no meio da faixa branca
                     central. Cada panfleto fica com{" "}
+                    <strong>≈{fmtMm(pxToMm(layout.gapXPx / 2))} mm</strong> (lat.) ×{" "}
+                    <strong>≈{fmtMm(pxToMm(layout.gapYPx / 2))} mm</strong> (vert.) de borda branca na linha de corte.
+                  </p>
+                ) : spec.gapMode === "multi-cut" ? (
+                  <p className="text-sm text-muted-foreground">
+                    Layout de <strong>{spec.rows} cortes</strong>: 1 vertical a <strong>{fmtMm(cutXMm)} mm</strong> da
+                    lateral e {spec.rows - 1} horizontais a{" "}
+                    <strong>{cutYMmList.map((v) => fmtMm(v)).join(" e ")} mm</strong> do topo — passe a lâmina no meio de
+                    cada faixa branca. Cada panfleto fica com{" "}
                     <strong>≈{fmtMm(pxToMm(layout.gapXPx / 2))} mm</strong> (lat.) ×{" "}
                     <strong>≈{fmtMm(pxToMm(layout.gapYPx / 2))} mm</strong> (vert.) de borda branca na linha de corte.
                   </p>

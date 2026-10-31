@@ -14,6 +14,15 @@
  *    (2) seguro mínimo de 0,5 mm no topo, (3) o resto vai para a folga da linha de
  *    corte (até 3,5 mm por peça). A guarda é ajustável na UI porque cada impressora
  *    tem uma margem não imprimível diferente na base.
+ *  - Panfleto Quadrado: grade 2 × 3 = 6 unidades QUADRADAS de 92 × 92 mm no modo
+ *    "multi-cut" — generalização do layout de 2 cortes para 3+ linhas: 1 corte vertical
+ *    (a 105 mm da lateral) + 2 horizontais (no MEIO de cada faixa branca entre linhas).
+ *    A folga vertical do A4 com 3 quadrados (21 mm) é distribuída por prioridade:
+ *    (1) folga de corte de até 3,5 mm por peça — o mesmo padrão VALIDADO do panfleto
+ *    de 4; (2) guarda de base ajustável (padrão 3,0 mm); (3) o restante divide-se
+ *    SIMETRICAMENTE entre topo e base, deixando o quadro branco da folha uniforme
+ *    (≈3,5 mm no topo e na base com a guarda padrão). Largura: 2 × 92 + 7 (faixa de
+ *    corte) = 191 mm → 9,5 mm de branco em cada lateral.
  *  - Linha de corte (opcional): fio cinza-claro desenhado 100% DENTRO da borda de
  *    cada peça — guia a guilhotina em artes com fundo branco/claro, em que o limite
  *    da peça é invisível contra o papel. O tamanho de corte continua exato.
@@ -169,6 +178,26 @@ function twoCutRows(pagePx: number, cellPx: number, guardPx: number): number[] {
   return [top, top + cellPx + 2 * clearance];
 }
 
+/**
+ * Linhas do modo "multi-cut" (grade com 3+ linhas — Panfleto Quadrado 2 × 3). Mesmo
+ * princípio do modo 2 cortes: a lâmina passa no MEIO de cada faixa branca entre linhas
+ * vizinhas (folga `CUT_CLEARANCE_PX` por peça, com teto de 3,5 mm), mas a folga
+ * externa é distribuída SIMETRICAMENTE — a base parte da guarda de impressora escolhida
+ * e o restante divide-se igualmente entre topo e base, para o quadro branco da folha
+ * ficar uniforme (com a guarda padrão de 3,0 mm: ≈3,5 mm de branco no topo e na base).
+ */
+function multiCutRows(pagePx: number, cellPx: number, rows: number, guardPx: number): number[] {
+  const slack = pagePx - rows * cellPx;
+  const guard = Math.min(Math.max(0, Math.round(guardPx)), slack);
+  const cuts = rows - 1;
+  const clearance = Math.min(CUT_CLEARANCE_PX, Math.floor((slack - 2 * guard) / (2 * cuts)));
+  const leftover = Math.max(0, slack - 2 * guard - 2 * cuts * clearance);
+  const top = guard + Math.floor(leftover / 2);
+  const positions: number[] = [];
+  for (let i = 0; i < rows; i++) positions.push(top + i * (cellPx + 2 * clearance));
+  return positions;
+}
+
 /** Opções de imposição ajustáveis na UI. */
 export interface ImpositionOptions {
   /** Branco extra na base da folha, em mm (padrão: {@link DEFAULT_BOTTOM_GUARD_MM}). */
@@ -191,6 +220,12 @@ export function computeLayout(spec: ProductSpec, options: ImpositionOptions = {}
     colX = twoCutPositions(A4.widthPx, cellWidthPx, CUT_CLEARANCE_PX);
     const guardPx = mmToPx(options.bottomGuardMm ?? DEFAULT_BOTTOM_GUARD_MM);
     rowY = twoCutRows(A4.heightPx, cellHeightPx, guardPx);
+  } else if (spec.gapMode === "multi-cut") {
+    // Mesma coluna do modo 2 cortes (2 colunas: 1 corte vertical central com 3,5 mm
+    // de folga por peça) + linhas gerais com folga externa simétrica.
+    colX = twoCutPositions(A4.widthPx, cellWidthPx, CUT_CLEARANCE_PX);
+    const guardPx = mmToPx(options.bottomGuardMm ?? DEFAULT_BOTTOM_GUARD_MM);
+    rowY = multiCutRows(A4.heightPx, cellHeightPx, spec.rows, guardPx);
   } else {
     colX = computePositions(A4.widthPx, cellWidthPx, spec.cols, computedGapPx(A4.widthPx, cellWidthPx, spec.cols));
     rowY = computePositions(A4.heightPx, cellHeightPx, spec.rows, computedGapPx(A4.heightPx, cellHeightPx, spec.rows));
@@ -287,6 +322,17 @@ export function describeLayout(spec: ProductSpec, options: ImpositionOptions = {
     const cutYMm = pxToMm((layout.rowY[0] + layout.cellHeightPx + layout.rowY[1]) / 2);
     lines.push(
       `2 cortes na guilhotina: vertical a ${cutXMm.toFixed(1)} mm da lateral · horizontal a ${cutYMm.toFixed(1)} mm do topo (meio da faixa branca central) · branco por peça na linha de corte: ${pxToMm(layout.gapXPx / 2).toFixed(1)} mm (lat.) × ${pxToMm(layout.gapYPx / 2).toFixed(1)} mm (vert.)`,
+    );
+    lines.push(
+      `Margem externa: ${pxToMm(layout.outerLeftPx).toFixed(1)} mm (lat.) × ${pxToMm(layout.outerTopPx).toFixed(1)} mm (topo) / ${pxToMm(layout.outerBottomPx).toFixed(1)} mm (base — reserva para a margem não imprimível da impressora)`,
+    );
+  } else if (spec.gapMode === "multi-cut") {
+    const cutXMm = pxToMm((layout.colX[0] + layout.cellWidthPx + layout.colX[1]) / 2);
+    const cutYMmList = layout.rowY
+      .slice(0, -1)
+      .map((y, i) => pxToMm((y + layout.cellHeightPx + layout.rowY[i + 1]) / 2));
+    lines.push(
+      `${spec.rows} cortes na guilhotina: 1 vertical a ${cutXMm.toFixed(1)} mm da lateral + ${spec.rows - 1} horizontais a ${cutYMmList.map((v) => v.toFixed(1)).join(" e ")} mm do topo (meio das faixas brancas) · branco por peça na linha de corte: ${pxToMm(layout.gapXPx / 2).toFixed(1)} mm (lat.) × ${pxToMm(layout.gapYPx / 2).toFixed(1)} mm (vert.)`,
     );
     lines.push(
       `Margem externa: ${pxToMm(layout.outerLeftPx).toFixed(1)} mm (lat.) × ${pxToMm(layout.outerTopPx).toFixed(1)} mm (topo) / ${pxToMm(layout.outerBottomPx).toFixed(1)} mm (base — reserva para a margem não imprimível da impressora)`,
