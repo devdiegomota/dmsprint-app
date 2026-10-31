@@ -516,3 +516,73 @@ linhas não-brancas + alfa por "brancura" com banda 180–245):
   base; somas exatas 2480 × 3508 px; guardas 0 e 5 mm estáveis.
 
 **Validação:** ESLint ✔ · tsc 0 erros em `src/` ✔ · build ✔.
+
+## Task 27 — Nuvem DMS: PDF do celular acessível no PC (fila com Storage + Firestore)
+
+**Data:** 2026-11-01 · **Commit:** ver hash abaixo · **Produção:** https://dmsprint-app--dmsprintapp.us-east4.hosted.app/
+
+**Pedido do usuário:** as artes geradas no celular precisam ser acessíveis direto no app no
+computador (hoje ele manda por Drive). Ideias discutidas: (1) nuvem com código de pareamento,
+(2) compartilhamento nativo, (3) fila de impressão com status, (4) login Google (Fase 4).
+Usuário aprovou **1 + 3** com busca de artes, botão/regra de limpeza e proteção para artes de
+clientes recorrentes. Perfil: conta **Blaze**, ~500 PDFs/mês.
+
+**Custo (verificado na tabela oficial):** Storage 5 GB grátis + $0.026/GB; downloads 1 GB/dia
+grátis + $0.12/GB. Com retenção de 60 dias: ~19,5 GB estáveis → **≈$0.38/mês** (downloads
+cabem na franquia diária; pior caso absoluto ≈$2.70). Config do app Web colada no cliente
+(dado público por design — segurança nas rules).
+
+**Modelo de acesso:** código de dispositivo de 6 caracteres sem ambiguidade (alfabeto
+ABCDEFGHJKMNPQRSTUVWXYZ23456789 — sem I/L/O/0/1), salvo em localStorage. É a chave do caminho
+`nuvem/{code}/` no Storage e `nuvem/{code}/pdfs/` no Firestore (regras espelham a regex).
+Painel permite "usar outro código" (acessar a fila de outro dispositivo).
+
+**Implementação:**
+- `src/lib/firebase/config.ts`: init LAZY (nada toca Firebase no SSR); memoizado.
+- `src/lib/nuvem/`:
+  - `types.ts`: `NuvemPdfDoc` (name/product/productName/sizeBytes/createdAt/status/pinned/
+    storagePath), status `novo|impresso|arquivado`, limite 200 MB, chaves de localStorage,
+    retenção 30/60/90/"nunca" (padrão 60).
+  - `device-code.ts`: geração crypto-safe, validação regex, leitura/salvamento.
+  - `store.ts`: `uploadNuvemPdf` (uploadBytesResumable + progresso → doc no Firestore),
+    `subscribeNuvemPdfs` (onSnapshot TEMPO REAL, orderBy createdAt desc — sem índice
+    composto), `nuvemDownloadUrl`, `updateNuvemDoc`, `deleteNuvemPdf` (tolera
+    object-not-found), `cleanupNuvemByAge` (preserva fixados), `cleanupNuvemAll`,
+    `friendlyFirebaseError` (mensagens acionáveis: regras não publicadas, serviço não
+    ativado, rede, cota).
+- `src/hooks/use-nuvem.ts`: `useDeviceCode` (lazy init — evita setState em effect, lint
+  react-hooks/set-state-in-effect), `useNuvemPdfs` (erro vinculado ao código que o gerou),
+  `useNuvemNovosCount` (badge do header), `useRetentionDays`, `readStoredFlag` compartilhado.
+- `src/components/print/nuvem-panel.tsx`: Sheet lateral completo — código do dispositivo
+  (copiar/usar outro com validação), busca por nome + filtros (status/produto/período),
+  fila com badge de status (novo âmbar, impresso verde, arquivado neutro), ações por item
+  (baixar, abrir, mudar status, fixar ⭐, excluir com confirmação), limpeza automática ao
+  abrir (uma vez por código/sessão, com toast), "Limpar antigas (n)" com preview e "Excluir
+  todas" (sempre preservando fixadas), switch "marcar como impresso ao baixar". Estado vazio
+  e cartão de instruções quando o backend não está ativado/regras ausentes.
+- `export-panel.tsx`: card "Nuvem DMS" — switch de auto-envio (padrão LIGADO, persistido),
+  barra de progresso do upload, botão de envio manual do último PDF gerado; cópia do texto
+  de privacidade atualizada ("envio opcional, para a SUA fila privada").
+- `pdf.ts`: `ExportResult` agora devolve `blob` (PNG: mesmo fluxo; JPEG: `pdf.output("blob")`
+  substitui `pdf.save()` — download idêntico, mas o blob fica disponível para a nuvem;
+  tamanho agora exato via blob.size em vez de estimativa por dataURL).
+- `page.tsx`: botão ☁️ no header com badge vermelho de PDFs novos (9+ acima de 9) + estado
+  `nuvemOpen` + `<NuvemPanel>` no layout.
+- `firestore.rules` / `storage.rules` (raiz): regras para colar no console (código no caminho
+  como chave; Storage valida contentType=application/pdf e tamanho < 200 MB).
+
+**Auditoria:** ESLint 0 · tsc src/ 0 (next-env.d.ts regenerado no build — sumiu no snapshot)
+· build ✔ · dev.log sem erros.
+
+**Verificação E2E (agent-browser):** painel abre com código gerado (5MCZSJ em teste) e salvo;
+estado vazio correto; fluxo "usar outro" valida 6 caracteres (habilita/desabilita); pipeline
+completo com arte de teste até a etapa 5; card Nuvem com auto-envio ligado; PNG gerado +
+upload real → 403 (regras ainda não publicadas — comportamento esperado, mensagem amigável);
+JPEG gerado e baixado (caminho output("blob") validado). **Bugs pegos no teste:** retenção
+mostrava "Nunca" (Number(null)=0 colidia com a opção "nunca" — agora null/vazio → 60 dias)
+e 403 de Storage caindo na mensagem genérica (adicionada branch unauthorized).
+
+**Pendente para o usuário ativar:** (1) Firestore Database → Criar (us-east4); (2) Storage →
+Começar; (3) colar as regras de `firestore.rules` e `storage.rules` em cada aba "Regras" e
+publicar. Login Google (Fase 4) substituirá o código por conta — estrutura já pronta.
+

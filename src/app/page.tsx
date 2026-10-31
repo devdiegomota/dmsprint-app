@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import NextImage from "next/image";
-import { RefreshCcw, Moon, Sun } from "lucide-react";
+import { RefreshCcw, Moon, Sun, Cloud } from "lucide-react";
 import logoLight from "@/assets/dms-print-logo.png";
 import logoDark from "@/assets/dms-print-logo-dark.png";
 import { useTheme } from "next-themes";
@@ -13,6 +13,8 @@ import { CropPanel } from "@/components/print/crop-panel";
 import { EnhancePanel } from "@/components/print/enhance-panel";
 import { PreviewPanel } from "@/components/print/preview-panel";
 import { ExportPanel } from "@/components/print/export-panel";
+import { NuvemPanel } from "@/components/print/nuvem-panel";
+import { useDeviceCode, useNuvemNovosCount } from "@/hooks/use-nuvem";
 import {
   PRODUCTS,
   type ProductId,
@@ -74,6 +76,31 @@ function ThemeToggle() {
   );
 }
 
+/** Botão da Nuvem DMS no header — badge vermelho com PDFs novos aguardando impressão. */
+function NuvemButton({ onOpen }: { onOpen: () => void }) {
+  const { code } = useDeviceCode();
+  const novos = useNuvemNovosCount(code);
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label={`Abrir Nuvem DMS${novos > 0 ? ` — ${novos} PDF${novos > 1 ? "s" : ""} novo${novos > 1 ? "s" : ""}` : ""}`}
+      onClick={onOpen}
+      className="relative"
+    >
+      <Cloud className="h-5 w-5" />
+      {novos > 0 && (
+        <span
+          aria-hidden
+          className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-600 px-1 text-[10px] font-bold leading-none text-white"
+        >
+          {novos > 9 ? "9+" : novos}
+        </span>
+      )}
+    </Button>
+  );
+}
+
 export default function Home() {
   const [step, setStep] = useState(1);
   const [maxReached, setMaxReached] = useState(1);
@@ -99,6 +126,9 @@ export default function Home() {
    *  etapa 4) — para artes com fundo branco/claro, em que o operador não enxerga
    *  onde cortar na guilhotina. */
   const [cutLine, setCutLine] = useState<CutLineConfig>(DEFAULT_CUT_LINE);
+
+  /** Nuvem DMS (Task 27) — painel de fila celular → PC. */
+  const [nuvemOpen, setNuvemOpen] = useState(false);
 
   const enhanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Canvas decodificado no tamanho natural — mantido para re-enquadrar sem re-decodificar.
@@ -326,7 +356,10 @@ export default function Home() {
               </p>
             </div>
           </div>
-          <ThemeToggle />
+          <div className="flex items-center gap-1">
+            <NuvemButton onOpen={() => setNuvemOpen(true)} />
+            <ThemeToggle />
+          </div>
         </div>
       </header>
 
@@ -410,6 +443,9 @@ export default function Home() {
           </div>
         )}
       </main>
+
+      {/* Nuvem DMS — fila de PDFs compartilhada entre celular e computador */}
+      <NuvemPanel open={nuvemOpen} onOpenChange={setNuvemOpen} />
 
       {/* Footer fixo no fim da página */}
       <footer className="mt-auto border-t bg-background">

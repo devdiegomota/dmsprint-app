@@ -1,0 +1,14 @@
+rules_version = '2';
+
+// Regras da Nuvem DMS (Task 27) — cole isto em:
+// Console Firebase → Firestore Database → Regras → Publicar
+//
+// Modelo de acesso: o código de dispositivo de 6 caracteres no caminho é a chave.
+// Quem o conhece lê/escreve a própria fila; qualquer outro caminho fica fechado.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /nuvem/{code}/pdfs/{docId} {
+      allow read, write: if code.matches('^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$');
+    }
+  }
+}

@@ -34,6 +34,8 @@ export interface ExportOptions {
 export interface ExportResult {
   filename: string;
   bytes: number;
+  /** Blob gerado — usado pelo upload opcional para a Nuvem DMS (Task 27). */
+  blob: Blob;
 }
 
 /** Dispara o download de um Blob no navegador. */
@@ -81,8 +83,9 @@ export async function exportSheetPdf(
     page.drawImage(image, { x: 0, y: 0, width: A4_PT.width, height: A4_PT.height });
 
     const bytes = await pdf.save();
-    downloadBlob(new Blob([bytes as BlobPart], { type: "application/pdf" }), filename);
-    return { filename, bytes: bytes.length };
+    const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
+    downloadBlob(blob, filename);
+    return { filename, bytes: bytes.length, blob };
   }
 
   // ---- Caminho JPEG (jsPDF / DCTDecode) ----
@@ -106,11 +109,11 @@ export async function exportSheetPdf(
     creator: "DMS Print — Montador de Folhas",
   });
 
-  pdf.save(filename);
-
-  // Estimativa de tamanho do payload (dataURL ≈ 4/3 do binário)
-  const bytes = Math.round((dataUrl.length - "data:image/jpeg;base64,".length) * 0.75);
-  return { filename, bytes };
+  // output("blob") em vez de pdf.save(): mesmo conteúdo, mas o blob fica disponível
+  // para o upload opcional à Nuvem DMS; o download continua idêntico ao de antes.
+  const blob = pdf.output("blob");
+  downloadBlob(blob, filename);
+  return { filename, bytes: blob.size, blob };
 }
 
 /** Formata bytes em KB/MB legíveis pt-BR. */

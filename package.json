@@ -50,6 +50,7 @@
     "date-fns": "^4.1.0",
     "embla-carousel-react": "^8.6.0",
     "fflate": "^0.8.3",
+    "firebase": "^13.1.0",
     "framer-motion": "^12.23.2",
     "input-otp": "^1.4.2",
     "jspdf": "^4.2.1",

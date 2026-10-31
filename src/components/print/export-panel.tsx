@@ -1,17 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { FileDown, Loader2, CheckCircle2, Printer, Scissors } from "lucide-react";
+import { CloudUpload, FileDown, Loader2, CheckCircle2, Printer, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { A4, fmtMm, pxToMm, type ProductSpec } from "@/lib/print/constants";
 import { computeLayout, MAX_BOTTOM_GUARD_MM, type CutLineConfig } from "@/lib/print/imposition";
 import { fmtBytes, exportSheetPdf, type PdfImageFormat } from "@/lib/print/pdf";
+import { uploadNuvemPdf, friendlyFirebaseError } from "@/lib/nuvem/store";
+import { ensureDeviceCode } from "@/lib/nuvem/device-code";
+import { readStoredFlag } from "@/hooks/use-nuvem";
+import { NUVEM_LS } from "@/lib/nuvem/types";
 import { useToast } from "@/hooks/use-toast";
 
 export function ExportPanel({
@@ -42,6 +47,48 @@ export function ExportPanel({
   const [exporting, setExporting] = useState(false);
   const [done, setDone] = useState<string | null>(null);
 
+  // ---- Nuvem DMS (Task 27) ----
+  // Último PDF gerado, disponível para envio manual à nuvem (blob ~5–60 MB, um por vez).
+  const [lastPdf, setLastPdf] = useState<{ blob: Blob; name: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  // Auto-envio: no celular, o PDF entra na nuvem assim que é gerado (o PC vê na hora).
+  // Lazy initializer: sem setState em effect (lint) e sem impacto no HTML do SSR.
+  const [autoSend, setAutoSend] = useState(() => readStoredFlag(NUVEM_LS.autoSend));
+
+  const handleAutoSend = (v: boolean) => {
+    setAutoSend(v);
+    window.localStorage.setItem(NUVEM_LS.autoSend, v ? "1" : "0");
+  };
+
+  const handleUpload = async (blob: Blob, name: string) => {
+    if (uploading) return;
+    setUploading(true);
+    setUploadProgress(0);
+    try {
+      const code = ensureDeviceCode();
+      await uploadNuvemPdf(
+        code,
+        blob,
+        { name, product: spec.id, productName: spec.name },
+        setUploadProgress,
+      );
+      toast({
+        title: "Enviado para a nuvem",
+        description: "No PC, abra a Nuvem DMS (ícone de nuvem no topo) — o PDF já está na fila.",
+      });
+    } catch (err) {
+      toast({
+        title: "Falha ao enviar para a nuvem",
+        description: friendlyFirebaseError(err),
+        variant: "destructive",
+      });
+    } finally {
+      setUploading(false);
+      setUploadProgress(0);
+    }
+  };
+
   // Linhas de corte e folgas derivadas do layout (fonte única da matemática) — para os
   // modos com faixas brancas de corte ("two-cut" 2 × 2 e "multi-cut" 2 × 3).
   const isCutGrid = spec.gapMode === "two-cut" || spec.gapMode === "multi-cut";
@@ -63,16 +110,19 @@ export function ExportPanel({
     try {
       // Deixa o browser pintar o estado de "gerando" antes do trabalho pesado
       await new Promise((r) => setTimeout(r, 50));
+      const cleanName = filename.trim() || "dms-print-folha";
       const result = await exportSheetPdf(sheetCanvas, {
-        filename: filename.trim() || "dms-print-folha",
+        filename: cleanName,
         format,
         quality: quality / 100,
       });
       setDone(`${result.filename} (${fmtBytes(result.bytes)})`);
+      setLastPdf({ blob: result.blob, name: result.filename.replace(/\.pdf$/i, "") });
       toast({
         title: "PDF gerado com sucesso",
         description: `${result.filename} — pronto para levar à gráfica.`,
       });
+      if (autoSend) await handleUpload(result.blob, result.filename.replace(/\.pdf$/i, ""));
     } catch (err) {
       console.error(err);
       toast({
@@ -277,7 +327,58 @@ export function ExportPanel({
               </p>
             )}
             <p className="text-center text-xs text-muted-foreground">
-              A geração acontece 100% no seu navegador — a arte do cliente não é enviada a nenhum servidor.
+              A geração acontece 100% no seu navegador. O envio para a nuvem é opcional — só vai,
+              protegido pelo código do seu dispositivo, para a SUA fila privada.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CloudUpload className="h-4 w-4 text-amber-600" aria-hidden />
+              Nuvem DMS
+            </CardTitle>
+            <CardDescription>
+              Gerou no celular? O PDF aparece direto no computador — sem Drive, sem cabo.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="flex items-start justify-between gap-4">
+              <Label htmlFor="nuvem-auto" className="text-sm leading-snug">
+                Enviar para a nuvem automaticamente ao gerar o PDF
+              </Label>
+              <Switch
+                id="nuvem-auto"
+                checked={autoSend}
+                onCheckedChange={handleAutoSend}
+                aria-label="Enviar automaticamente para a nuvem"
+              />
+            </div>
+
+            {uploading && (
+              <div className="grid gap-1.5">
+                <Progress value={uploadProgress} aria-label="Progresso do envio" />
+                <p className="text-center text-xs text-muted-foreground">
+                  Enviando… {uploadProgress}%
+                </p>
+              </div>
+            )}
+
+            <Button
+              variant="outline"
+              onClick={() => lastPdf && handleUpload(lastPdf.blob, lastPdf.name)}
+              disabled={!lastPdf || uploading}
+            >
+              {uploading ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <CloudUpload className="h-4 w-4" aria-hidden />
+              )}
+              {lastPdf ? `Enviar “${lastPdf.name}” agora` : "Gerar o PDF para poder enviar"}
+            </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              A fila fica no ícone de nuvem no topo — mesmo código no PC e no celular.
             </p>
           </CardContent>
         </Card>

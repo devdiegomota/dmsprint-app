@@ -1,0 +1,19 @@
+rules_version = '2';
+
+// Regras da Nuvem DMS (Task 27) — cole isto em:
+// Console Firebase → Storage → Regras → Publicar
+//
+// Modelo de acesso: `nuvem/{code}/{fileId}` — o código no caminho é a chave.
+// Apenas PDFs de até 200 MB são aceitos no upload; leitura/limpeza seguem livres
+// para quem tem o código (o app faz a limpeza pelo próprio navegador).
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /nuvem/{code}/{fileId} {
+      allow read, delete: if code.matches('^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$');
+      allow create: if code.matches('^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$')
+                    && request.resource.size > 0
+                    && request.resource.size < 200 * 1024 * 1024
+                    && request.resource.contentType == 'application/pdf';
+    }
+  }
+}
