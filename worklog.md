@@ -586,3 +586,33 @@ e 403 de Storage caindo na mensagem genérica (adicionada branch unauthorized).
 Começar; (3) colar as regras de `firestore.rules` e `storage.rules` em cada aba "Regras" e
 publicar. Login Google (Fase 4) substituirá o código por conta — estrutura já pronta.
 
+
+## Task 27 — Pós-deploy: validação real + correções de robustez
+
+**Bug de produção achado no primeiro teste real (celular → PC):** o usuário criou o banco
+Firestore com ID personalizado `dmsprint-app`; o app (getFirestore padrão) fala com o
+`(default)`, que não existia. Sintomas: Storage chegava a 100% e o `setDoc` NUNCA
+resolvia (SDK fica em retry infinito sem rejeitar quando o banco não existe) → botão
+"Enviar agora" girando em loop, barra travada em 100%, sem toast de erro; a fila mostrava
+o item por latência-compensação local e zerava ao recarregar; nada cruzava entre
+dispositivos. Diagnóstico fechado com o Playground de regras (permitia, mas o caminho
+revelava o nome do banco) + "nenhuma coleção" no console. Fix do usuário: criar o banco
+com ID `(default)` e colar as mesmas regras — sincronizou em tempo real na hora.
+
+**Correções no código (esta entrada):**
+- `store.ts`: watchdogs no upload — teto total de 180 s (cancela o task e rejeita
+  `nuvem/timeout-storage`) e ack do Firestore de 20 s após 100% (`nuvem/timeout-firestore`,
+  o cenário do bug); em qualquer falha pós-upload, o PDF órfão é removido do Storage
+  (fire-and-forget). `withTimeout` transforma travamento silencioso em erro visível.
+- `friendlyFirebaseError`: duas branches novas explicando o (default) pelo nome.
+- `use-nuvem.ts`: watchdog de 12 s no primeiro snapshot da fila — se o listener não
+  responder (mesma causa-raiz), o painel mostra o aviso com o passo-a-passo em vez de
+  "Carregando…" eterno; dados chegando depois apagam o aviso sozinhos.
+- `nuvem-panel.tsx`: card de erro agora ensina o ID `(default)` (bancos com nome
+  personalizado ficam invisíveis); dica de letras parecidas (5/S, 2/Z, 8/B, 6/G) na
+  digitação do código e no estado vazio da fila.
+- `page.tsx`: logo do header menor (h-11 → h-9) a pedido do usuário (PC e celular).
+
+**Lição registrada:** Firestore novo console permite nomear o banco na criação — o campo
+parece "nome da tela", mas é o ID da API. O app sempre fala com `(default)` a menos que
+`getFirestore(app, id)` seja usado. Fase 4 (Auth) deve lembrar isso.

@@ -316,6 +316,10 @@ export function NuvemPanel({
                 <p className="text-xs text-muted-foreground">
                   No celular, o código está aqui mesmo — botão de copiar abaixo.
                 </p>
+                <p className="text-xs text-muted-foreground">
+                  Confira letra por letra:{" "}
+                  <span className="font-semibold">5/S, 2/Z, 8/B e 6/G</span> se parecem muito.
+                </p>
               </div>
             ) : (
               <div className="flex flex-wrap items-center gap-3">
@@ -342,8 +346,12 @@ export function NuvemPanel({
             <div className="border-b border-amber-600/40 bg-amber-600/10 p-4 text-sm leading-relaxed">
               <p className="font-semibold text-amber-700 dark:text-amber-400">{error}</p>
               <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted-foreground">
-                <li>Console Firebase → <strong>Firestore Database</strong> → Criar banco (região us-east4).</li>
-                <li>Console → <strong>Storage</strong> → Começar (mesma região).</li>
+                <li>
+                  Console Firebase → <strong>Firestore Database</strong>: o banco precisa existir
+                  com o ID exato <strong>(default)</strong> — banco com nome personalizado (ex.:
+                  “dmsprint-app”) fica invisível para o app.
+                </li>
+                <li>Console → <strong>Storage</strong> → Começar.</li>
                 <li>Em ambos, aba <strong>Regras</strong>, cole as regras da Nuvem DMS e publique.</li>
               </ol>
             </div>
@@ -404,9 +412,20 @@ export function NuvemPanel({
             {filtered && filtered.length === 0 && !error && (
               <div className="flex flex-col items-center gap-2 py-10 text-center text-sm text-muted-foreground">
                 <CloudUpload className="h-8 w-8 opacity-40" aria-hidden />
-                {docs && docs.length > 0
-                  ? "Nenhum PDF com esses filtros."
-                  : "Nenhum PDF na nuvem ainda. No celular, toque em “Enviar para a nuvem” na etapa 5."}
+                {docs && docs.length > 0 ? (
+                  "Nenhum PDF com esses filtros."
+                ) : (
+                  <div className="flex flex-col items-center gap-2">
+                    <p>
+                      Nenhum PDF na nuvem ainda. No celular, toque em “Enviar para a nuvem” na
+                      etapa 5.
+                    </p>
+                    <p className="max-w-xs text-xs">
+                      Enviou do celular e não aparece? Confira se o código acima é o do celular —
+                      letra por letra (5/S, 2/Z, 8/B, 6/G).
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 

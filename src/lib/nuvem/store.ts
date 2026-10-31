@@ -27,6 +27,39 @@ import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from "firebas
 import { getFirebase } from "@/lib/firebase/config";
 import { NUVEM_MAX_BYTES, type NuvemPdfDoc, type NuvemStatus } from "./types";
 
+/** Teto total do upload (redes móveis lentas) — não deixa o botão girando para sempre. */
+const UPLOAD_OVERALL_TIMEOUT_MS = 180_000;
+/**
+ * Depois que os bytes sobem, a gravação do metadado no Firestore deve ser rápida.
+ * Se estourar, quase sempre é o banco do Firestore com ID diferente de (default) ou
+ * sem regras: o SDK fica em retry infinito SEM rejeitar, travando a UI em loop.
+ */
+const FIRESTORE_ACK_TIMEOUT_MS = 20_000;
+
+/** Erro com a mesma cara dos FirebaseError (campo `code`) para o friendlyFirebaseError. */
+function syntheticError(code: string): Error {
+  const err = new Error(code);
+  (err as { code?: string }).code = code;
+  return err;
+}
+
+/** Rejeita se `p` não resolver em `ms` — transforma travamento silencioso em erro visível. */
+function withTimeout<T>(p: Promise<T>, ms: number, code: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(syntheticError(code)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
 export interface UploadMeta {
   name: string;
   product: NuvemPdfDoc["product"];
@@ -55,10 +88,18 @@ export function uploadNuvemPdf(
   });
 
   return new Promise<string>((resolve, reject) => {
+    // Watchdog total: se a rede prender, cancela o upload e rejeita com erro claro.
+    const overall = setTimeout(() => {
+      task.cancel();
+      reject(syntheticError("nuvem/timeout-storage"));
+    }, UPLOAD_OVERALL_TIMEOUT_MS);
     task.on(
       "state_changed",
       (snap) => onProgress?.(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
-      (err) => reject(err),
+      (err) => {
+        clearTimeout(overall);
+        reject(err);
+      },
       async () => {
         try {
           const payload: Omit<NuvemPdfDoc, "id"> = {
@@ -71,9 +112,19 @@ export function uploadNuvemPdf(
             pinned: false,
             storagePath,
           };
-          await setDoc(doc(db, "nuvem", code, "pdfs", id), payload);
+          await withTimeout(
+            setDoc(doc(db, "nuvem", code, "pdfs", id), payload),
+            FIRESTORE_ACK_TIMEOUT_MS,
+            "nuvem/timeout-firestore",
+          );
+          clearTimeout(overall);
           resolve(id);
         } catch (err) {
+          clearTimeout(overall);
+          // O PDF pode ter subido sem o metadado (a fila nunca confirmou) — remove o
+          // órfão do Storage para não acumular arquivo invisível. Falha silenciosa:
+          // se as regras também negarem delete, não há mais nada a fazer aqui.
+          deleteObject(ref(storage, storagePath)).catch(() => {});
           reject(err);
         }
       },
@@ -166,6 +217,12 @@ export async function cleanupNuvemAll(code: string): Promise<number> {
 /** Traduz erros comuns do Firebase para mensagens acionáveis em PT-BR. */
 export function friendlyFirebaseError(err: unknown): string {
   const code = (err as { code?: string }).code ?? "";
+  if (code === "nuvem/timeout-firestore") {
+    return "A fila não confirmou o envio — o PDF não entrou. Causa mais comum: o banco do Firestore precisa existir com o ID exato (default) (não um nome personalizado) e ter as regras publicadas.";
+  }
+  if (code === "nuvem/timeout-storage") {
+    return "O envio passou de 3 minutos e foi interrompido. Verifique a internet e tente de novo.";
+  }
   if (code.includes("permission-denied") || code.includes("unauthorized")) {
     return "Acesso negado: as regras de segurança da Nuvem DMS ainda não foram publicadas (ou estão erradas) no console — Firestore e Storage, aba Regras.";
   }

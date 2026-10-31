@@ -61,20 +61,40 @@ export function useNuvemPdfs(code: string | null) {
 
   useEffect(() => {
     if (!code) return;
+    let settled = false;
+    // Watchdog do primeiro snapshot: com o banco Firestore errado (ex.: ID diferente de
+    // (default)) o SDK fica em retry infinito sem nem erro — mostra aviso em vez de
+    // "Carregando…" eterno. Se os dados chegarem depois, o erro se apaga sozinho.
+    const watchdog = setTimeout(() => {
+      if (!settled) {
+        setErrorState({
+          code,
+          message:
+            "A fila não respondeu. Causa mais comum: o banco do Firestore precisa existir com o ID exato (default) e ter as regras da Nuvem DMS publicadas.",
+        });
+      }
+    }, 12_000);
     const unsub = subscribeNuvemPdfs(
       code,
       (list) => {
+        settled = true;
+        clearTimeout(watchdog);
         setDocs(list);
         setErrorState(null);
       },
       (message) => {
+        settled = true;
+        clearTimeout(watchdog);
         if (reportedFor.current !== code) {
           reportedFor.current = code;
           setErrorState({ code, message });
         }
       },
     );
-    return () => unsub();
+    return () => {
+      clearTimeout(watchdog);
+      unsub();
+    };
   }, [code]);
 
   const error = errorState && errorState.code === code ? errorState.message : null;

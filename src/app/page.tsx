@@ -339,13 +339,13 @@ export default function Home() {
                 src={logoLight}
                 alt=""
                 priority
-                className="h-11 w-auto dark:hidden"
+                className="h-9 w-auto dark:hidden"
               />
               <NextImage
                 src={logoDark}
                 alt=""
                 priority
-                className="hidden h-11 w-auto dark:block"
+                className="hidden h-9 w-auto dark:block"
               />
             </h1>
             <div className="hidden border-l pl-3 sm:block">
