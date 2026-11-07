@@ -16,7 +16,7 @@ export function pxToMm(px: number, dpi: number = PRINT_DPI): number {
   return (px / dpi) * MM_PER_INCH;
 }
 
-export type ProductId = "cartao-visita" | "panfleto" | "panfleto-quadrado";
+export type ProductId = "cartao-visita" | "panfleto" | "panfleto-quadrado" | "calendario-tenda";
 
 export interface ProductSpec {
   id: ProductId;
@@ -93,6 +93,21 @@ export const PRODUCTS: Record<ProductId, ProductSpec> = {
     gapMode: "two-cut",
     spacingNote:
       "Exato para 2 cortes na guilhotina (1 vertical + 1 horizontal): ≈3,5 mm de borda branca por peça na linha de corte (lat. e vert.) e ≈3,0–3,5 mm de branco nas bordas da folha para a margem não imprimível da impressora (validado em impressora real).",
+  },
+  "calendario-tenda": {
+    id: "calendario-tenda",
+    name: "Calendário de Mesa Tenda",
+    // Face da tenda (210 × 148,5 mm) — a folha A4 inteira É a tenda planificada
+    // (dobra no meio, sem corte). Não passa pelo pipeline de imposição: tem fluxo
+    // próprio em /calendario (Task 28). Aqui só para identidade na Nuvem DMS.
+    widthMm: 210,
+    heightMm: 148.5,
+    unitsPerSheet: 1,
+    cols: 1,
+    rows: 1,
+    gapMode: "glued",
+    spacingNote:
+      "Tenda planificada: a folha A4 inteira é o calendário — dobrar no meio (148,5 mm), sem corte.",
   },
 };
 

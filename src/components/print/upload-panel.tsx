@@ -87,7 +87,11 @@ export function UploadPanel({
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2">
-          {(Object.keys(PRODUCTS) as ProductId[]).map((id) => {
+          {(Object.keys(PRODUCTS) as ProductId[])
+            // O calendário tenda tem fluxo próprio (página /calendario) — não é uma
+            // peça imposta na grade A4, então não entra no seletor deste painel.
+            .filter((id) => id !== "calendario-tenda")
+            .map((id) => {
             const spec = PRODUCTS[id];
             const selected = product === id;
             const px = productPixelSize(spec);

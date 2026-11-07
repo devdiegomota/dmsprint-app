@@ -616,3 +616,47 @@ com ID `(default)` e colar as mesmas regras — sincronizou em tempo real na hor
 **Lição registrada:** Firestore novo console permite nomear o banco na criação — o campo
 parece "nome da tela", mas é o ID da API. O app sempre fala com `(default)` a menos que
 `getFirestore(app, id)` seja usado. Fase 4 (Auth) deve lembrar isso.
+
+## Task 28 — Calendário de Mesa Tenda 2027 (fluxo próprio /calendario)
+
+**Conceito (decidido com o usuário):** tenda A5 (21 × 14,8 cm por face) — 1 tenda por
+folha A4 inteira, dobra no meio (148,5 mm), sem corte. 13 painéis (capa + 12 meses).
+App MONTA o calendário: cliente manda só as artes; grade de dias gerada com feriados.
+Verso de cada cartão = arte + mês seguinte. Ano 2027. Cor dos textos ajustável com
+extração da cor dominante da arte (pedido do usuário — casar texto com foto/logo).
+
+**Arquitetura:** fora do pipeline de imposição (não é grade de cortes). `src/lib/calendar/`:
+- `dates.ts` (puro, sem DOM): Páscoa (Meeus–Jones–Butcher) → Carnaval (−47d), Sexta Santa
+  (−2d), Corpus Christi (+60d) + fixos nacionais (incl. Consciência Negra 20/11, nacional
+  desde Lei 14.759/2023). VERIFICADO contra ANBIMA 2027 (26/03 sexta, 27/05 quinta batem)
+  via `scripts/verify_calendar_2027.ts` (node --experimental-strip-types).
+- `compose.ts`: faces 2480×1754 px (300 DPI). Scrim auto pela luminância do texto (claro→
+  faixa escura, escuro→clara) com gradiente de transição. Extração de cor: amostra 24px,
+  peso saturação², ignora quase-branco/preto, boost ×1.25. Grade domingo-primeiro, legenda
+  "dd/mm nome" (até 2 linhas).
+- `pdf.ts`: 13 folhas — frente embaixo + verso (mês seguinte, wrap: dezembro→capa) girado
+  180° em cima. MODELO TENDA (Avery): as duas faces no MESMO lado do papel; imprime só a
+  frente, sem duplex. JPEG q0.95 via jsPDF (DCTDecode sem recodificar — Task 24).
+
+**UI** (`/calendario`): 13 slots com miniaturas, multi-upload em ordem alfabética, prévia
+por painel, nota de DPI efetivo (bad<100/warn<150), título da capa, cores, export com
+progresso + envio à nuvem (reusa uploadNuvemPdf/friendlyFirebaseError). Produto
+"calendario-tenda" registrado em PRODUCTS (aparece no filtro da Nuvem; EXCLUÍDO do
+seletor do fluxo antigo em upload-panel). Link "Calendário Tenda" no header da home.
+
+**Bug de hidratação (React #418) achado pelo E2E:** `useDeviceCode` lia localStorage no
+inicializador lazy do useState → primeiro render do cliente divergia do HTML do servidor.
+Latente na home (código não aparecia no HTML); explodiu no Calendário, que exibe o código
+no botão. FIX: `useSyncExternalStore` (snapshot servidor null, cliente lê localStorage,
+evento `nuvem-code-changed`) — de quebra, livra o setState-síncrono-em-effect que o lint
+do React Compiler reprova.
+
+**E2E real (Playwright, `scripts/e2e_calendario.py`):** 13 artes sintéticas (PIL) → upload
+múltiplo → 13 miniaturas → extração de cor (#1e8dd8 da capa azul) → prévia março (dia 1
+na segunda, conferido em zoom) → PDF baixado: 13 páginas, A4 exato (595.3×841.9 pt),
+5 MB → botão nuvem habilitado. Zero pageerrors. Artes de teste em scripts/make_test_art.py.
+
+**Pegadinha de sessão:** snapshot ressuscitou o entulho do template (api/route.ts "Hello
+world", db.ts Prisma, logo.svg, crop-dialog.tsx velho) que hoje quebraria o build (rota
+/api falsa + erros tsc). Removido definitivamente; quarentena em .debris/ foi apagada
+pelo snapshot — não insistir nela.

@@ -8,7 +8,7 @@
  * rede só dentro de useEffect (nunca no servidor).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ensureDeviceCode, getStoredDeviceCode, saveDeviceCode } from "@/lib/nuvem/device-code";
 import { subscribeNuvemPdfs } from "@/lib/nuvem/store";
 import {
@@ -35,16 +35,35 @@ function readStoredDays(): RetentionDays {
     : DEFAULT_RETENTION_DAYS;
 }
 
+/** Evento disparado quando o código do dispositivo muda neste navegador. */
+const CODE_EVENT = "nuvem-code-changed";
+
+function subscribeCode(onChange: () => void): () => void {
+  window.addEventListener("storage", onChange);
+  window.addEventListener(CODE_EVENT, onChange);
+  return () => {
+    window.removeEventListener("storage", onChange);
+    window.removeEventListener(CODE_EVENT, onChange);
+  };
+}
+
 /** Código deste navegador (gera na primeira montagem) + troca manual. */
 export function useDeviceCode() {
-  // Inicializador lazy (não effect): evita setState síncrono e não afeta o HTML
-  // inicial — o código só é exibido dentro do painel, que começa fechado.
-  const [code, setCodeState] = useState<string | null>(() =>
-    typeof window !== "undefined" ? ensureDeviceCode() : null,
-  );
+  // localStorage como external store (useSyncExternalStore): snapshot do servidor
+  // é null, o do cliente lê o código — sem divergência de hidratação (React #418,
+  // que acontecia com o inicializador lazy lendo localStorage no primeiro render)
+  // e sem setState síncrono em effect (lint do React Compiler).
+  const code = useSyncExternalStore(subscribeCode, getStoredDeviceCode, () => null);
+
+  useEffect(() => {
+    if (!getStoredDeviceCode()) {
+      ensureDeviceCode();
+      window.dispatchEvent(new Event(CODE_EVENT));
+    }
+  }, []);
 
   const setCode = useCallback((raw: string) => {
-    if (saveDeviceCode(raw)) setCodeState(getStoredDeviceCode());
+    if (saveDeviceCode(raw)) window.dispatchEvent(new Event(CODE_EVENT));
   }, []);
 
   return { code, setCode };
