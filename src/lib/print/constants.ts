@@ -16,7 +16,12 @@ export function pxToMm(px: number, dpi: number = PRINT_DPI): number {
   return (px / dpi) * MM_PER_INCH;
 }
 
-export type ProductId = "cartao-visita" | "panfleto" | "panfleto-quadrado" | "calendario-tenda";
+export type ProductId =
+  | "cartao-visita"
+  | "panfleto"
+  | "panfleto-quadrado"
+  | "calendario-tenda"
+  | "calendario-tenda-a4";
 
 export interface ProductSpec {
   id: ProductId;
@@ -108,6 +113,21 @@ export const PRODUCTS: Record<ProductId, ProductSpec> = {
     gapMode: "glued",
     spacingNote:
       "Tenda planificada: a folha A4 inteira é o calendário — dobrar no meio (148,5 mm), sem corte.",
+  },
+  "calendario-tenda-a4": {
+    id: "calendario-tenda-a4",
+    name: "Calendário Tenda A4 (1 folha)",
+    // Folha A4 inteira = calendário completo (Task 29): frente arte + Jan–Jun,
+    // verso arte + Jul–Dez girado. Dobra no meio (148,5 mm), sem corte, sem
+    // duplex. Mesmo fluxo próprio de /calendario, formato "Tenda A4 única".
+    widthMm: 210,
+    heightMm: 297,
+    unitsPerSheet: 1,
+    cols: 1,
+    rows: 1,
+    gapMode: "glued",
+    spacingNote:
+      "1 folha A4 = calendário completo: frente com Jan–Jun, verso com Jul–Dez. Dobrar no meio (148,5 mm), sem corte.",
   },
 };
 

@@ -47,6 +47,25 @@ function normalizeFilename(name: string): string {
   return name.toLowerCase().endsWith(".pdf") ? name : `${name}.pdf`;
 }
 
+/** jsPDF A4 retrato com metadados do produto. */
+function newA4Pdf(title: string, subject: string): jsPDF {
+  const pdf = new jsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: "a4",
+    compress: true,
+  });
+  pdf.setProperties({ title, subject, creator: "DMS Print — Calendário Tenda" });
+  return pdf;
+}
+
+/** Acrescenta a folha composta (`canvas` 2480 × 3508) como página A4 do PDF. */
+function appendSheetPage(pdf: jsPDF, canvas: HTMLCanvasElement, quality: number, first: boolean): void {
+  const dataUrl = canvas.toDataURL("image/jpeg", quality);
+  if (!first) pdf.addPage();
+  pdf.addImage(dataUrl, "JPEG", 0, 0, 210, 297, undefined, "NONE");
+}
+
 /** Monta a página A4 do cartão `cardIndex`: frente embaixo + verso (mês seguinte) em cima. */
 export function buildTendaPage(
   faces: HTMLCanvasElement[],
@@ -87,26 +106,35 @@ export async function exportCalendarPdf(
   const filename = normalizeFilename(options.filename);
   const quality = options.quality ?? 0.95;
 
-  const pdf = new jsPDF({
-    orientation: "portrait",
-    unit: "mm",
-    format: "a4",
-    compress: true,
-  });
-  pdf.setProperties({
-    title: filename.replace(/\.pdf$/i, ""),
-    subject: "Calendário de Mesa Tenda 2027 — 1 tenda por folha A4, dobrar no meio",
-    creator: "DMS Print — Calendário Tenda",
-  });
+  const pdf = newA4Pdf(filename.replace(/\.pdf$/i, ""), "Calendário de Mesa Tenda 2027 — 1 tenda por folha A4, dobrar no meio");
 
   for (let card = 0; card < PANEL_COUNT; card++) {
     const page = buildTendaPage(faces, card);
-    const dataUrl = page.toDataURL("image/jpeg", quality);
-    if (card > 0) pdf.addPage();
-    pdf.addImage(dataUrl, "JPEG", 0, 0, 210, 297, undefined, "NONE");
+    appendSheetPage(pdf, page, quality, card === 0);
   }
 
   const blob = pdf.output("blob");
   downloadBlob(blob, filename);
   return { filename, bytes: blob.size, pages: PANEL_COUNT, blob };
+}
+
+/**
+ * Formato "Tenda A4 única" (Task 29): UMA folha com o calendário completo —
+ * frente (arte + Jan–Jun) embaixo e verso (arte + Jul–Dez) girado 180° em cima.
+ * Dobra no meio, imprime só a frente do papel. `sheet` é a folha composta
+ * (composeTendaA4Sheet, 2480 × 3508 px).
+ */
+export async function exportTendaA4Pdf(
+  sheet: HTMLCanvasElement,
+  options: CalendarPdfOptions,
+): Promise<CalendarPdfResult> {
+  const filename = normalizeFilename(options.filename);
+  const quality = options.quality ?? 0.95;
+
+  const pdf = newA4Pdf(filename.replace(/\.pdf$/i, ""), "Calendário Tenda A4 2027 — 1 folha: frente Jan–Jun, verso Jul–Dez; dobrar no meio");
+  appendSheetPage(pdf, sheet, quality, true);
+
+  const blob = pdf.output("blob");
+  downloadBlob(blob, filename);
+  return { filename, bytes: blob.size, pages: 1, blob };
 }

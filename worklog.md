@@ -660,3 +660,43 @@ na segunda, conferido em zoom) → PDF baixado: 13 páginas, A4 exato (595.3×84
 world", db.ts Prisma, logo.svg, crop-dialog.tsx velho) que hoje quebraria o build (rota
 /api falsa + erros tsc). Removido definitivamente; quarentena em .debris/ foi apagada
 pelo snapshot — não insistir nela.
+
+## Task 29 — Calendário Tenda A4 única (1 folha = calendário completo)
+
+**Pedido do usuário:** o produto que ele planeja não é 1 folha por mês — é UMA folha
+A4 com o calendário INTEIRO: "um lado arte e 6 meses e o verso arte e os outros 6
+meses", recorta e dobra em estilo tenda.
+
+**Física da dobra (a chave do formato):** na tenda, frente e traseira ficam na MESMA
+face do papel (a de cima gira 180°) — a mesma geometria validada na Task 28. Então 1
+folha impressa de UM lado só já dá o calendário completo: dobra no meio (148,5 mm) →
+frente com arte + Jan–Jun, traseira com arte + Jul–Dez legível por trás. Sem corte,
+sem duplex, sem desalinhamento de frente-e-verso.
+
+**Código:**
+- `src/lib/calendar/compose-tenda-a4.ts`: perna 2480×1754 = faixa de arte à ESQUERDA
+  (760 px ≈ 64,5 mm) com título/ano sobre scrim + 6 mini-meses 2×3 à direita
+  (célula ≈750×498 px, dias ~12 pt impressos, legenda de feriados de 1 linha
+  truncada). Folha = frente embaixo + verso girado em cima. Reusa dates.ts,
+  CalendarStyle, extração de cor e luminância do compose.ts.
+- `pdf.ts`: `exportTendaA4Pdf` (1 página A4) compartilhando newA4Pdf/appendSheetPage
+  com o export de 13 folhas (refatoração mínima, exports antigos intactos).
+- Produto nuvem "calendario-tenda-a4" em PRODUCTS; seletor do upload-panel filtra
+  os dois calendários (`!id.startsWith("calendario-tenda")` — comparação dupla dava
+  TS2367 de no-overlap).
+- `/calendario`: seletor de formato ("Tenda A4 única" é o PADRÃO agora; 13 cartões
+  continua), 2 slots (frente/verso) + "usar a mesma arte nos dois lados", prévia da
+  folha completa, export/nuvem por formato. `canExport` do A4 só exige a arte da
+  frente (verso repete a frente se vazio).
+
+**2 bugs achados no self-check visual do PDF real (não pegam em lint/tsc):**
+1. Área dos mini-meses nasceu PRETA — canvas transparente + JPEG sem alfa. Fix:
+   fundo branco no início da perna.
+2. Arte em modo cover TRANSBORDAVA a faixa (drawImage não clipeia) e invadia a
+   grade dos meses. Fix: ctx.clip() no retângulo da faixa.
+
+**E2E (`scripts/e2e_calendario.py` reescrito):** valida os dois formatos na mesma
+sessão — A4: 2 slots, extração (#1e8dd8), PDF de 1 página A4 exata, nuvem;
+13 cartões: troca de formato, multi-upload preenche os 11 restantes, 13 páginas.
+Pegadinha de sessão: dev server velho da Task 28 segurava a 3100 com código velho
+(fuser não matou; `ss -ltnp` → kill -9 do PID).
