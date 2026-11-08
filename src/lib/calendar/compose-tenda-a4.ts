@@ -17,8 +17,9 @@
  * 2·faceMm da borda).
  *
  * A arte de cada face aceita posicionamento manual (ArtPlacement: arraste +
- * zoom + preencher/enquadrar). computeArtRect/panPlacement alimentam o editor
- * da prévia e o PDF com a MESMA matemática — o que se vê é o que sai.
+ * zoom + preencher/enquadrar) e a LARGURA DA FAIXA é ajustável em mm
+ * (artWidthMm — Task 33). computeArtRect/panPlacement e artWidthPx alimentam o
+ * editor da prévia e o PDF com a MESMA matemática — o que se vê é o que sai.
  */
 
 import { makeCanvas } from "@/lib/print/analysis";
@@ -34,8 +35,19 @@ import { FACE_H_PX, FACE_W_PX, luminance, type CalendarStyle } from "./compose";
 export const SHEET_W_PX = FACE_W_PX; // 2480
 export const SHEET_H_PX = FACE_H_PX * 2; // 3508
 
-/** Largura da faixa de arte da perna (≈ 64,5 mm @ 300 DPI). */
-export const A4_ART_W_PX = 760;
+/** Largura da faixa de arte da face — AJUSTÁVEL pelo slider da página, em mm.
+ * Limites: abaixo de ~45 mm o título/ano não cabem; acima de ~100 mm os
+ * mini-meses ficam apertados demais. Padrão mantém o layout de sempre. */
+export const ART_W_MIN_MM = 45;
+export const ART_W_MAX_MM = 100;
+export const ART_W_DEFAULT_MM = 64.5;
+
+/** Largura da faixa em px de impressão (300 DPI) para uma largura em mm —
+ * a MESMA conversão alimenta editor e PDF: o visto é o impresso. */
+export function artWidthPx(artWidthMm: number): number {
+  const mm = Math.min(ART_W_MAX_MM, Math.max(ART_W_MIN_MM, artWidthMm));
+  return Math.round(mmToPx(mm));
+}
 
 /** Pé da tenda (aba de colagem) — limites e padrão, em mm. */
 export const FOOT_MIN_MM = 45;
@@ -172,7 +184,8 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
  * Face da tenda (2480 × legH px): faixa de arte à esquerda com posicionamento
  * manual + 6 mini-meses à direita. `monthStart` = 1 (frente, Jan–Jun) ou 7
  * (verso, Jul–Dez). As métricas escalam com a altura da face (o pé encolhe as
- * faces).
+ * faces) e a largura da faixa (`artW`) é ajustável — os mini-meses ocupam o
+ * que sobra da face.
  */
 export function composeTendaA4Leg(
   monthStart: 1 | 7,
@@ -182,6 +195,7 @@ export function composeTendaA4Leg(
   year: number,
   placement: ArtPlacement,
   legH: number,
+  artW: number,
 ): HTMLCanvasElement {
   const W = FACE_W_PX;
   const H = legH;
@@ -201,24 +215,27 @@ export function composeTendaA4Leg(
     // dos meses — recorta tudo à largura da faixa.
     ctx.save();
     ctx.beginPath();
-    ctx.rect(0, 0, A4_ART_W_PX, H);
+    ctx.rect(0, 0, artW, H);
     ctx.clip();
-    const band = { width: A4_ART_W_PX, height: H };
+    const band = { width: artW, height: H };
     const rect = computeArtRect(art, band, placement);
     if (placement.fitMode === "contain") {
       ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, A4_ART_W_PX, H);
+      ctx.fillRect(0, 0, artW, H);
     }
     ctx.drawImage(art, rect.dx, rect.dy, rect.dw, rect.dh);
     ctx.restore();
   } else {
     ctx.fillStyle = "#e7e5e4";
-    ctx.fillRect(0, 0, A4_ART_W_PX, H);
+    ctx.fillRect(0, 0, artW, H);
     ctx.fillStyle = "#78716c";
     ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.font = `700 ${Math.round(64 * s)}px ${FONT_STACK}`;
-    ctx.fillText(`${label} — sem arte`, A4_ART_W_PX / 2, H / 2);
+    ctx.textBaseline = "alphabetic";
+    // Rótulo em 2 linhas: em faixas estreitas o texto inteiro não caberia.
+    fitFont(ctx, label, 700, Math.round(56 * s), Math.round(34 * s), artW - Math.round(80 * s));
+    ctx.fillText(label, artW / 2, H / 2 - Math.round(20 * s));
+    ctx.font = `500 ${Math.round(40 * s)}px ${FONT_STACK}`;
+    ctx.fillText("sem arte", artW / 2, H / 2 + Math.round(28 * s));
   }
 
   // ---- Título + ano sobre a arte (scrim na base da faixa) ----
@@ -229,22 +246,22 @@ export function composeTendaA4Leg(
   grad.addColorStop(0, darkText ? "rgba(255, 255, 255, 0)" : "rgba(12, 10, 9, 0)");
   grad.addColorStop(1, solid);
   ctx.fillStyle = grad;
-  ctx.fillRect(0, H - scrimH - Math.round(80 * s), A4_ART_W_PX, Math.round(140 * s));
+  ctx.fillRect(0, H - scrimH - Math.round(80 * s), artW, Math.round(140 * s));
   ctx.fillStyle = solid;
-  ctx.fillRect(0, H - scrimH + Math.round(60 * s), A4_ART_W_PX, scrimH - Math.round(60 * s));
+  ctx.fillRect(0, H - scrimH + Math.round(60 * s), artW, scrimH - Math.round(60 * s));
 
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
   setShadow(ctx, !darkText);
   ctx.fillStyle = style.textColor;
-  fitFont(ctx, style.coverTitle, 700, Math.round(84 * s), Math.round(34 * s), A4_ART_W_PX - Math.round(90 * s));
-  ctx.fillText(style.coverTitle, A4_ART_W_PX / 2, H - Math.round(235 * s));
+  fitFont(ctx, style.coverTitle, 700, Math.round(84 * s), Math.round(34 * s), artW - Math.round(90 * s));
+  ctx.fillText(style.coverTitle, artW / 2, H - Math.round(235 * s));
   ctx.font = `900 ${Math.round(210 * s)}px ${FONT_STACK}`;
-  ctx.fillText(String(year), A4_ART_W_PX / 2, H - Math.round(60 * s));
+  ctx.fillText(String(year), artW / 2, H - Math.round(60 * s));
   setShadow(ctx, false);
 
   // ---- 6 mini-meses em grade 2 × 3 ----
-  const monthsX0 = A4_ART_W_PX + 60;
+  const monthsX0 = artW + 60;
   const monthsX1 = W - 110;
   const gapX = Math.round(50 * s);
   const gapY = Math.round(40 * s);
@@ -394,6 +411,8 @@ function drawFlapStrip(
 export interface TendaA4Options {
   /** Pé da tenda (aba de colagem) em mm — 45 a 80. */
   footMm: number;
+  /** Largura da faixa de arte em mm — 45 a 100 (padrão 64,5). */
+  artWidthMm: number;
   /** Ano do calendário (grade e feriados). */
   year: number;
   /** Posicionamento da arte na faixa da frente e do verso. */
@@ -414,10 +433,12 @@ export function composeTendaA4Sheet(
   style: CalendarStyle,
   opts: TendaA4Options,
 ): HTMLCanvasElement {
-  // Normaliza o pé para mm UMA vez: o resto do código usa mm nos textos e px
-  // (leg/foot) só na geometria — misturar as unidades quebrou o guia na 1ª rodada.
+  // Normaliza o pé e a largura da faixa para mm UMA vez: o resto do código usa
+  // mm nos textos e px (leg/foot/artW) só na geometria — misturar as unidades
+  // quebrou o guia na 1ª rodada.
   const footMm = Math.round(clamp(opts.footMm, FOOT_MIN_MM, FOOT_MAX_MM));
   const { leg, foot } = legHeightPx(footMm);
+  const artW = artWidthPx(opts.artWidthMm);
   const back = artBack ?? artFront;
   const frontLeg = composeTendaA4Leg(
     1,
@@ -427,6 +448,7 @@ export function composeTendaA4Sheet(
     opts.year,
     opts.placementFront,
     leg,
+    artW,
   );
   const backLeg = composeTendaA4Leg(
     7,
@@ -436,6 +458,7 @@ export function composeTendaA4Sheet(
     opts.year,
     opts.placementBack,
     leg,
+    artW,
   );
   const sheet = makeCanvas(SHEET_W_PX, SHEET_H_PX);
   const ctx = sheet.getContext("2d");

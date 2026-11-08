@@ -800,3 +800,28 @@ exports" no build — `rm -rf .next` resolveu (node_modules e lockfile estavam �
 amostra o pixel exato da área lisa da capa (#1f78b4 vs RGB(31,120,180)), e todos os
 checks anteriores (pé, drag, zoom, ano, PDF 1 página A4, 13 cartões) continuam verde.
 Self-check visual do PDF: cor amostrada sai nos meses da frente — prévia = impresso.
+
+## Task 33 — Tenda A4: largura da área da arte ajustável (45–100 mm)
+
+**Pedido do usuário:** regular também a LARGURA do espaço que leva a arte — até aqui a
+faixa era fixa em 760 px (≈ 64,5 mm) por constante.
+
+**Código:**
+- `compose-tenda-a4.ts`: `A4_ART_W_PX` (constante fixa) saiu; entraram `ART_W_MIN_MM/
+  MAX_MM/DEFAULT_MM` (45 / 100 / 64,5) + `artWidthPx(mm)` — a MESMA conversão mm→px
+  (300 DPI) alimenta editor e PDF. `composeTendaA4Leg` recebe `artW` (clip, scrim,
+  título, ano e `monthsX0` derivam dele — os mini-meses ocupam o que sobra da face);
+  `TendaA4Options` ganhou `artWidthMm`, normalizado em mm uma vez em
+  `composeTendaA4Sheet` (mesma lição da Task 30: mm nos textos, px só na geometria).
+  Placeholder "sem arte" agora em 2 linhas com fitFont — em faixa estreita o rótulo
+  inteiro não caberia numa linha.
+- `page.tsx`: estado `artWidthMm`; card "Largura da área da arte" (slider 45–100,
+  passo 0,5, valor em mm com vírgula) entre "Pé da tenda" e "Como imprimir"; editor
+  recebe `bandW={artW}` dinâmico (proporção do canvas acompanha na hora); nota de DPI
+  usa a largura REAL escolhida (antes era 64,5 cravado).
+- E2E: mapeamento do conta-gotas lê a largura real do canvas (evaluate) em vez do 760
+  cravado; 5 checks novos — padrão 762 px, End→100 mm = 1181 px, prévia recompõe,
+  Home→45 mm = 531 px e volta ao padrão por teclado (39× ArrowRight; evento `input`
+  sintético via evaluate NÃO move o React 19 — value tracker engole). 32 verificações
+  verdes (eram 28). Screenshots das extremidades: 100 mm mostra até o contorno da arte
+  de teste (antes cortado) e 45 mm mantém título/ano legíveis com fitFont.

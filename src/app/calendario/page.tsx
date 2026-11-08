@@ -8,7 +8,8 @@
  *    FRENTE-E-VERSO (virar pela borda longa) — verso (Jul–Dez, de cabeça para
  *    baixo) + frente (Jan–Jun) + aba do pé, em 1 página. Dobra na cumeeira,
  *    dobra no pé, cola a aba por dentro → triângulo com pé firme na mesa.
- *    Pé ajustável (45–80 mm). Sem marcas de dobra e sem página de instruções
+ *    Pé ajustável (45–80 mm) e largura da faixa da arte ajustável (45–100 mm,
+ *    Task 33). Sem marcas de dobra e sem página de instruções
  *    (a DMS entrega as tendas já dobradas).
  *  - "13 cartões": capa + 12 meses, 1 tenda por folha (mês seguinte no verso).
  *
@@ -54,13 +55,16 @@ import {
 } from "@/lib/calendar/compose";
 import { exportCalendarPdf, exportTendaA4Pdf } from "@/lib/calendar/pdf";
 import {
-  A4_ART_W_PX,
   A4_SLOT_LABELS,
+  ART_W_DEFAULT_MM,
+  ART_W_MAX_MM,
+  ART_W_MIN_MM,
   DEFAULT_PLACEMENT,
   FOOT_DEFAULT_MM,
   FOOT_MAX_MM,
   FOOT_MIN_MM,
   a4Filename,
+  artWidthPx,
   composeTendaA4Sheet,
   legHeightPx,
   type ArtPlacement,
@@ -133,6 +137,8 @@ export default function CalendarioPage() {
   const [year, setYear] = useState(CALENDAR_YEAR);
   /** Pé da tenda (aba de colagem) em mm — o resto da altura vira as 2 faces. */
   const [footMm, setFootMm] = useState(FOOT_DEFAULT_MM);
+  /** Largura da faixa de arte em mm — os mini-meses ocupam o que sobra na face. */
+  const [artWidthMm, setArtWidthMm] = useState(ART_W_DEFAULT_MM);
   /** Posicionamento da arte por slot (editor arrastar/zoom). */
   const [placements, setPlacements] = useState<ArtPlacement[]>([
     DEFAULT_PLACEMENT,
@@ -151,11 +157,13 @@ export default function CalendarioPage() {
   const isA4 = format === "a4";
   const legH = legHeightPx(footMm).leg;
   const faceMm = (297 - footMm) / 2;
+  /** Largura da faixa de arte em px de impressão — editor e PDF usam a mesma. */
+  const artW = artWidthPx(artWidthMm);
   const slotCount = isA4 ? A4_SLOT_LABELS.length : PANEL_COUNT;
   const slotLabel = (i: number) => (isA4 ? A4_SLOT_LABELS[i] : panelLabel(i));
   const filled = thumbs.slice(0, slotCount).filter(Boolean).length;
   const allFilled = filled === slotCount;
-  const note = qualityNote(artsRef.current[selected], isA4 ? 64.5 : 210);
+  const note = qualityNote(artsRef.current[selected], isA4 ? artWidthMm : 210);
   /** No A4 único, só a arte da frente é obrigatória (a do verso repete a frente). */
   const canExport = isA4 ? Boolean(thumbs[0]) : allFilled;
 
@@ -269,6 +277,7 @@ export default function CalendarioPage() {
             style,
             {
               footMm,
+              artWidthMm,
               year,
               placementFront: placements[0],
               placementBack: placements[1],
@@ -295,7 +304,7 @@ export default function CalendarioPage() {
       alive = false;
       clearTimeout(timer);
     };
-  }, [selected, style, version, isA4, footMm, year, placements]);
+  }, [selected, style, version, isA4, footMm, artWidthMm, year, placements]);
 
   const handleExtractColor = () => {
     // No A4 único a referência é a arte da frente; nos 13 cartões, a do painel aberto.
@@ -349,7 +358,7 @@ export default function CalendarioPage() {
           artsRef.current[0],
           artsRef.current[1],
           style,
-          { footMm, year, placementFront: placements[0], placementBack: placements[1] },
+          { footMm, artWidthMm, year, placementFront: placements[0], placementBack: placements[1] },
         );
         setExportProgress(60);
         await tick();
@@ -600,7 +609,7 @@ export default function CalendarioPage() {
               <CardContent>
                 <ArtPlacementEditor
                   art={artsRef.current[selected]}
-                  bandW={A4_ART_W_PX}
+                  bandW={artW}
                   bandH={legH}
                   placement={placements[selected] ?? DEFAULT_PLACEMENT}
                   onChange={(p) =>
@@ -641,6 +650,43 @@ export default function CalendarioPage() {
                   Faces com {fmtMm(faceMm)} mm de altura cada. Pé maior = tenda mais aberta e
                   estável; menor = tenda mais fechada. A folha fecha exata em 297 mm — mande
                   vincar nas posições indicadas no card "Como imprimir".
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {isA4 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Largura da área da arte</CardTitle>
+                <CardDescription>
+                  A faixa vertical que leva a arte e o título nas duas faces — os 6 mini-meses de
+                  cada lado ocupam o que sobra.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-2">
+                <input
+                  id="art-width-range"
+                  type="range"
+                  min={ART_W_MIN_MM}
+                  max={ART_W_MAX_MM}
+                  step={0.5}
+                  value={artWidthMm}
+                  onChange={(e) => setArtWidthMm(Number(e.target.value))}
+                  className="w-full accent-primary"
+                  aria-label="Largura da área da arte em milímetros"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>{ART_W_MIN_MM} mm</span>
+                  <span className="text-sm font-semibold text-foreground">
+                    {fmtMm(artWidthMm)} mm
+                  </span>
+                  <span>{ART_W_MAX_MM} mm</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Padrão de {fmtMm(ART_W_DEFAULT_MM)} mm. Mais larga = mais arte e menos espaço
+                  para os meses; mais estreita = o contrário. Vale para frente e verso, e o
+                  recorte da arte se adapta ao novo formato da faixa.
                 </p>
               </CardContent>
             </Card>

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""E2E do Calendário Tenda (Tasks 28–32): sobe /calendario local e valida os
+"""E2E do Calendário Tenda (Tasks 28–33): sobe /calendario local e valida os
 dois formatos.
 
 Formato "Tenda A4 única" (padrão da página): 2 artes, auto-extração de cor no
-upload + paleta da arte + conta-gotas no editor, seletor de ano, pé ajustável
-(aba de colagem), editor de posicionamento da arte (arrastar + zoom), prévia da
-folha (1 página, sem guia de montagem), PDF de 1 página A4 e nuvem habilitada.
+upload + paleta da arte + conta-gotas no editor, largura da faixa da arte
+ajustável em mm, seletor de ano, pé ajustável (aba de colagem), editor de
+posicionamento da arte (arrastar + zoom), prévia da folha (1 página, sem guia
+de montagem), PDF de 1 página A4 e nuvem habilitada.
 Formato "13 cartões": troca de formato, 13 artes, prévia capa/março, PDF de
 13 páginas A4.
 
@@ -80,7 +81,8 @@ with sync_playwright() as p:
     faixa_pick = page.locator("canvas[data-testid='art-band-editor']")
     faixa_pick.scroll_into_view_if_needed()
     caixa_pick = faixa_pick.bounding_box()
-    px_css = caixa_pick["x"] + caixa_pick["width"] * (100 / 760)
+    largura_faixa = faixa_pick.evaluate("c => c.width")
+    px_css = caixa_pick["x"] + caixa_pick["width"] * (100 / largura_faixa)
     py_css = caixa_pick["y"] + caixa_pick["height"] / 2
     page.mouse.click(px_css, py_css)
     page.wait_for_timeout(500)
@@ -92,6 +94,29 @@ with sync_playwright() as p:
     got = tuple(int(cor_pick[i:i + 2], 16) for i in (1, 3, 5))
     checar(all(abs(a - b) <= 12 for a, b in zip(got, esperado)),
            f"conta-gotas pegou o pixel da área lisa ({cor_pick} vs RGB{esperado})")
+
+    # Largura da área da arte (Task 33): slider em mm muda a faixa no editor e na prévia
+    faixa_w = page.locator("canvas[data-testid='art-band-editor']")
+    w_padrao = faixa_w.evaluate("c => c.width")
+    checar(w_padrao == 762, f"faixa de arte padrão = 64,5 mm → 762 px (encontrada {w_padrao})")
+    src_padrao = previa.get_attribute("src")
+    page.locator("#art-width-range").focus()
+    page.keyboard.press("End")  # → 100 mm
+    page.wait_for_timeout(700)
+    w_max = faixa_w.evaluate("c => c.width")
+    checar(w_max == 1181, f"faixa em 100 mm → 1181 px (encontrada {w_max})")
+    checar(previa.get_attribute("src") != src_padrao,
+           "mudar a largura da arte recompõe a prévia")
+    previa.screenshot(path="/tmp/render/cal-e2e-faixa-100mm.png")
+    page.keyboard.press("Home")  # → 45 mm
+    page.wait_for_timeout(700)
+    w_min = faixa_w.evaluate("c => c.width")
+    checar(w_min == 531, f"faixa em 45 mm → 531 px (encontrada {w_min})")
+    previa.screenshot(path="/tmp/render/cal-e2e-faixa-45mm.png")
+    for _ in range(39):  # 45 + 39 × 0,5 = 64,5 mm — de volta ao padrão
+        page.keyboard.press("ArrowRight")
+    page.wait_for_timeout(700)
+    checar(faixa_w.evaluate("c => c.width") == 762, "faixa de volta ao padrão de 64,5 mm")
 
     # Seletor de ano: 2028 atualiza o título automático da capa; volta para 2027
     page.locator("#cal-year").select_option("2028")
