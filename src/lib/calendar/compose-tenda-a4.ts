@@ -1,5 +1,5 @@
 /**
- * Formato "Tenda A4 única" — UM calendário completo por folha A4 (Tasks 29–30).
+ * Formato "Tenda A4 única" — UM calendário completo por folha A4 (Tasks 29–31).
  *
  * Tenda com PÉ (aba de colagem): o A4 é impresso FRENTE E VERSO (virar pela
  * borda longa) e leva 2 vincos:
@@ -10,13 +10,11 @@
  * face = (297 − pé) / 2 (117 mm com o pé padrão de 63 mm). Pé maior = tenda
  * mais aberta e estável; menor = tenda mais fechada.
  *
- * Páginas geradas (composeTendaA4Pages):
- *  - Página 1 (impresso na frente do papel): verso (Jul–Dez) DE CABEÇA PARA
- *    BAIXO em cima + frente (Jan–Jun) embaixo + aba em branco com marcas de
- *    dobra nas bordas;
- *  - Página 2 (verso do papel, área livre): guia de montagem impresso —
- *    etiquetas das dobras, passos, diagrama do triângulo e a área de cola
- *    hachurada na aba.
+ * O PDF sai com 1 página (a folha impressa: verso Jul–Dez de cabeça para baixo
+ * em cima + frente Jan–Jun embaixo + aba do pé em branco) — SEM marcas de
+ * dobra e SEM página de instruções: a DMS entrega as tendas já dobradas
+ * (Task 31). Sem marcas, a posição dos vincos é dada pelas medidas (faceMm e
+ * 2·faceMm da borda).
  *
  * A arte de cada face aceita posicionamento manual (ArtPlacement: arraste +
  * zoom + preencher/enquadrar). computeArtRect/panPlacement alimentam o editor
@@ -149,17 +147,7 @@ function fitFont(
   return size;
 }
 
-/** Corta o texto (com reticências) para caber na largura. */
-function truncateToWidth(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
-  if (ctx.measureText(text).width <= maxWidth) return text;
-  let out = text;
-  while (out.length > 1 && ctx.measureText(`${out}…`).width > maxWidth) {
-    out = out.slice(0, -1);
-  }
-  return `${out}…`;
-}
-
-/** Quebra um texto em linhas pela largura (para os passos do guia). */
+/** Quebra um texto em linhas pela largura (legenda de feriados e guias). */
 function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
   const lines: string[] = [];
   let line = "";
@@ -298,7 +286,26 @@ function drawMiniMonth(
 ): void {
   const grid = buildMonthGrid(year, month);
   const legend = style.showHolidayNames ? holidayLegend(year, month) : [];
-  const legendH = legend.length > 0 ? Math.round(44 * s) : Math.round(10 * s);
+
+  // Legenda de feriados: QUEBRA em linhas em vez de cortar com reticências —
+  // o nome inteiro precisa ser legível (Task 31). Encolhe a fonte antes de
+  // ocupar mais linhas (até 4; com os feriados reais bastam 2).
+  let legendLines: string[] = [];
+  let legendSize = Math.round(30 * s);
+  if (legend.length > 0) {
+    const text = legend.join("  ·  ");
+    for (;;) {
+      ctx.font = `500 ${legendSize}px ${FONT_STACK}`;
+      legendLines = wrapText(ctx, text, w - 4);
+      if (legendLines.length <= 4 || legendSize <= Math.round(22 * s)) break;
+      legendSize -= 2;
+    }
+    legendLines = legendLines.slice(0, 4);
+  }
+  const legendH =
+    legendLines.length > 0
+      ? Math.round(4 * s) + legendLines.length * Math.round(38 * s)
+      : Math.round(10 * s);
 
   // Nome do mês
   const name = MONTH_NAMES[month - 1];
@@ -337,19 +344,22 @@ function drawMiniMonth(
     }
   }
 
-  // Legenda "dd/mm nome" (1 linha, truncada)
-  if (legend.length > 0) {
+  // Legenda "dd/mm nome" — em quantas linhas forem precisas (até 4)
+  if (legendLines.length > 0) {
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
-    ctx.font = `500 ${Math.round(30 * s)}px ${FONT_STACK}`;
+    ctx.font = `500 ${legendSize}px ${FONT_STACK}`;
     ctx.fillStyle = style.accentColor;
-    const line = legend.join("  ·  ");
-    ctx.fillText(truncateToWidth(ctx, line, w - 4), x + 2, y + h - Math.round(10 * s));
+    const step = Math.round(38 * s);
+    const lastY = y + h - Math.round(10 * s);
+    legendLines.forEach((line, i) => {
+      ctx.fillText(line, x + 2, lastY - (legendLines.length - 1 - i) * step);
+    });
   }
 }
 
 // ---------------------------------------------------------------------------
-// Página 1: folha impressa (faces + aba) · Página 2: guia de montagem
+// Folha impressa: verso de cabeça para baixo + frente + aba do pé
 // ---------------------------------------------------------------------------
 
 /** Cópia girada 180° da perna (para a metade de cima da folha). */
@@ -361,29 +371,6 @@ function rotate180(src: HTMLCanvasElement): HTMLCanvasElement {
   ctx.rotate(Math.PI);
   ctx.drawImage(src, 0, 0);
   return out;
-}
-
-/** Marcas de dobra nas bordas da folha (discretas, sobre a arte, no vinco exato). */
-function drawFoldTicks(ctx: CanvasRenderingContext2D, leg: number): void {
-  for (const y of [leg, leg * 2]) {
-    for (const x0 of [0, SHEET_W_PX - 96]) {
-      ctx.save();
-      ctx.setLineDash([30, 20]);
-      ctx.lineWidth = 12;
-      ctx.strokeStyle = "rgba(12, 10, 9, 0.55)";
-      ctx.beginPath();
-      ctx.moveTo(x0 + 6, y);
-      ctx.lineTo(x0 + 90, y);
-      ctx.stroke();
-      ctx.lineWidth = 5;
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.95)";
-      ctx.beginPath();
-      ctx.moveTo(x0 + 6, y);
-      ctx.lineTo(x0 + 90, y);
-      ctx.stroke();
-      ctx.restore();
-    }
-  }
 }
 
 /** Aba do pé (em branco no lado de fora) + nota discreta. `footMm` só para o texto. */
@@ -398,200 +385,10 @@ function drawFlapStrip(
   ctx.textBaseline = "middle";
   ctx.font = `600 52px ${FONT_STACK}`;
   ctx.fillText(
-    `Aba de colagem (${footMm} mm) — dobra para dentro e cola por dentro · guia de montagem no verso`,
+    `Aba de colagem (${footMm} mm) — dobra para dentro e cola por dentro`,
     SHEET_W_PX / 2,
     yTop + footPx / 2,
   );
-}
-
-/** Etiqueta centralizada sobre a linha de dobra (guia de montagem). */
-function drawFoldChip(
-  ctx: CanvasRenderingContext2D,
-  y: number,
-  label: string,
-): void {
-  const ink = "#1c1917";
-  ctx.font = `700 50px ${FONT_STACK}`;
-  const tw = ctx.measureText(label).width;
-  const chipW = tw + 90;
-  const chipH = 88;
-  const cx = SHEET_W_PX / 2;
-  ctx.save();
-  ctx.fillStyle = "#ffffff";
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  if (typeof ctx.roundRect === "function") {
-    ctx.roundRect(cx - chipW / 2, y - chipH / 2, chipW, chipH, chipH / 2);
-  } else {
-    ctx.rect(cx - chipW / 2, y - chipH / 2, chipW, chipH);
-  }
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = ink;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(label, cx, y + 2);
-  ctx.restore();
-}
-
-/**
- * Página 2 — guia de montagem (impresso no VERSO do papel, fica para dentro
- * da tenda): título, diagrama do triângulo, etiquetas das dobras, passos e a
- * área de cola hachurada na aba.
- */
-function composeAssemblyPage(foot: number, year: number): HTMLCanvasElement {
-  const { leg } = legHeightPx(foot);
-  const faceMm = (297 - foot) / 2;
-  const fmtMm = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1).replace(".", ","));
-  const ink = "#1c1917";
-  const muted = "#57534e";
-  const page = makeCanvas(SHEET_W_PX, SHEET_H_PX);
-  const ctx = page.getContext("2d");
-  if (!ctx) throw new Error("Canvas 2D indisponível neste navegador.");
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, SHEET_W_PX, SHEET_H_PX);
-  const y1 = leg;
-  const y2 = leg * 2;
-
-  // ---- Faixa de cima (dentro da face de trás): título + diagrama ----
-  ctx.textAlign = "center";
-  ctx.textBaseline = "alphabetic";
-  ctx.fillStyle = ink;
-  ctx.font = `900 110px ${FONT_STACK}`;
-  ctx.fillText("MONTE SUA TENDA", SHEET_W_PX / 2, 220);
-  ctx.fillStyle = muted;
-  ctx.font = `500 46px ${FONT_STACK}`;
-  ctx.fillText("guia de montagem — esta página fica para DENTRO da tenda", SHEET_W_PX / 2, 300);
-  ctx.textAlign = "left";
-  ctx.fillStyle = "#a8a29e";
-  ctx.font = `500 34px ${FONT_STACK}`;
-  ctx.fillText(
-    `DMS Print · Calendário Tenda A4 ${year} · pé ${foot} mm · faces ${fmtMm(faceMm)} mm`,
-    140,
-    380,
-  );
-
-  // Diagrama da vista de corte (triângulo: 2 faces + aba)
-  const k = 3.4; // px por mm
-  const baseHalf = (foot / 2) * k;
-  const faceLen = faceMm * k;
-  const apexY = 430;
-  const baseY = apexY + Math.sqrt(faceLen * faceLen - baseHalf * baseHalf);
-  const cx = SHEET_W_PX / 2;
-  ctx.beginPath();
-  ctx.moveTo(cx, apexY);
-  ctx.lineTo(cx - baseHalf, baseY);
-  ctx.lineTo(cx + baseHalf, baseY);
-  ctx.closePath();
-  ctx.fillStyle = "rgba(0, 0, 0, 0.04)";
-  ctx.fill();
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 6;
-  ctx.stroke();
-  ctx.fillStyle = ink;
-  ctx.font = `700 44px ${FONT_STACK}`;
-  ctx.textAlign = "right";
-  ctx.fillText("frente", cx - baseHalf / 2 - 36, (apexY + baseY) / 2);
-  ctx.font = `500 38px ${FONT_STACK}`;
-  ctx.fillStyle = muted;
-  ctx.fillText(`${fmtMm(faceMm)} mm`, cx - baseHalf / 2 - 36, (apexY + baseY) / 2 + 50);
-  ctx.textAlign = "left";
-  ctx.fillStyle = ink;
-  ctx.font = `700 44px ${FONT_STACK}`;
-  ctx.fillText("verso", cx + baseHalf / 2 + 36, (apexY + baseY) / 2);
-  ctx.font = `500 38px ${FONT_STACK}`;
-  ctx.fillStyle = muted;
-  ctx.fillText(`${fmtMm(faceMm)} mm`, cx + baseHalf / 2 + 36, (apexY + baseY) / 2 + 50);
-  ctx.textAlign = "center";
-  ctx.fillStyle = ink;
-  ctx.font = `700 44px ${FONT_STACK}`;
-  ctx.fillText(`aba de colagem (pé) · ${foot} mm`, cx, baseY + 58);
-  ctx.fillStyle = muted;
-  ctx.font = `500 38px ${FONT_STACK}`;
-  ctx.fillText("vista de corte — as 2 faces + a aba fecham o triângulo", cx, baseY + 116);
-
-  // ---- Linhas de dobra + etiquetas ----
-  ctx.save();
-  ctx.setLineDash([44, 30]);
-  ctx.lineWidth = 5;
-  ctx.strokeStyle = ink;
-  for (const y of [y1, y2]) {
-    ctx.beginPath();
-    ctx.moveTo(100, y);
-    ctx.lineTo(SHEET_W_PX - 100, y);
-    ctx.stroke();
-  }
-  ctx.restore();
-  drawFoldChip(ctx, y1, `DOBRA 1 · CUMEEIRA — vinco a ${fmtMm(faceMm)} mm da borda`);
-  drawFoldChip(ctx, y2, `DOBRA 2 · PÉ — vinco a ${fmtMm(faceMm * 2)} mm da borda`);
-
-  // ---- Faixa do meio (dentro da face frontal): passos ----
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
-  ctx.fillStyle = ink;
-  ctx.font = `900 64px ${FONT_STACK}`;
-  ctx.fillText("Como montar", 140, y1 + 120);
-  const steps = [
-    "Imprima frente e verso (virar pela borda LONGA), escala 100%, em papel de 250 a 300 g.",
-    "Vinque e dobre a Dobra 1 (cumeeira): as duas faces com arte ficam para fora.",
-    "Vinque e dobre a Dobra 2 (pé) para dentro — a aba vira o assoalho do triângulo.",
-    `Aplique cola na faixa hachurada da aba e prensse contra a borda interna da face de trás. A aba de ${foot} mm fecha o pé.`,
-    "Dobre UMA folha de teste antes de rodar a tiragem.",
-  ];
-  ctx.font = `500 42px ${FONT_STACK}`;
-  let sy = y1 + 210;
-  for (let i = 0; i < steps.length; i++) {
-    ctx.fillStyle = ink;
-    ctx.beginPath();
-    ctx.arc(180, sy - 14, 30, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#ffffff";
-    ctx.textAlign = "center";
-    ctx.font = `700 34px ${FONT_STACK}`;
-    ctx.textBaseline = "middle";
-    ctx.fillText(String(i + 1), 180, sy - 12);
-    ctx.textBaseline = "alphabetic";
-    ctx.textAlign = "left";
-    ctx.fillStyle = ink;
-    ctx.font = `500 42px ${FONT_STACK}`;
-    const lines = wrapText(ctx, steps[i], 1500);
-    for (const line of lines) {
-      ctx.fillText(line, 250, sy);
-      sy += 56;
-    }
-    sy += 28;
-  }
-
-  // ---- Faixa de baixo (dentro da aba): área de cola hachurada ----
-  const gx = 140;
-  const gzTop = SHEET_H_PX - 40 - mmToPx(20);
-  const gw = SHEET_W_PX - 280;
-  const gh = SHEET_H_PX - 40 - gzTop;
-  ctx.fillStyle = muted;
-  ctx.textAlign = "center";
-  ctx.font = `500 42px ${FONT_STACK}`;
-  ctx.fillText(`A aba de ${foot} mm vira o assoalho da tenda.`, SHEET_W_PX / 2, gzTop - 128);
-  ctx.fillStyle = ink;
-  ctx.font = `700 52px ${FONT_STACK}`;
-  ctx.fillText("COLA — aplique nesta faixa e prensse contra a face de trás", SHEET_W_PX / 2, gzTop - 66);
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(gx, gzTop, gw, gh);
-  ctx.clip();
-  ctx.strokeStyle = "rgba(87, 83, 78, 0.5)";
-  ctx.lineWidth = 4;
-  for (let x = gx - gh; x < gx + gw; x += 36) {
-    ctx.beginPath();
-    ctx.moveTo(x, gzTop + gh);
-    ctx.lineTo(x + gh, gzTop);
-    ctx.stroke();
-  }
-  ctx.restore();
-  ctx.strokeStyle = "#78716c";
-  ctx.lineWidth = 4;
-  ctx.strokeRect(gx, gzTop, gw, gh);
-  return page;
 }
 
 export interface TendaA4Options {
@@ -605,19 +402,18 @@ export interface TendaA4Options {
 }
 
 /**
- * As 2 páginas A4 do calendário completo:
- *  [0] folha impressa — verso (Jul–Dez) de cabeça para baixo em cima, frente
- *      (Jan–Jun) embaixo, aba do pé em branco com marcas de dobra;
- *  [1] guia de montagem — sai no verso do papel (imprimir frente-e-verso,
- *      virar pela borda longa).
+ * A folha A4 do calendário completo (1 página, impressa frente-e-verso):
+ * verso (Jul–Dez) de cabeça para baixo em cima, frente (Jan–Jun) embaixo e a
+ * aba do pé em branco. Sem marcas de dobra e sem página de instruções — a
+ * posição dos vincos é dada pelas medidas (faceMm e 2·faceMm da borda).
  * Se a arte do verso não for enviada, a da frente é repetida.
  */
-export function composeTendaA4Pages(
+export function composeTendaA4Sheet(
   artFront: HTMLCanvasElement | null,
   artBack: HTMLCanvasElement | null,
   style: CalendarStyle,
   opts: TendaA4Options,
-): [HTMLCanvasElement, HTMLCanvasElement] {
+): HTMLCanvasElement {
   // Normaliza o pé para mm UMA vez: o resto do código usa mm nos textos e px
   // (leg/foot) só na geometria — misturar as unidades quebrou o guia na 1ª rodada.
   const footMm = Math.round(clamp(opts.footMm, FOOT_MIN_MM, FOOT_MAX_MM));
@@ -641,14 +437,13 @@ export function composeTendaA4Pages(
     opts.placementBack,
     leg,
   );
-  const page1 = makeCanvas(SHEET_W_PX, SHEET_H_PX);
-  const ctx = page1.getContext("2d");
+  const sheet = makeCanvas(SHEET_W_PX, SHEET_H_PX);
+  const ctx = sheet.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D indisponível neste navegador.");
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, SHEET_W_PX, SHEET_H_PX);
   ctx.drawImage(rotate180(backLeg), 0, 0);
   ctx.drawImage(frontLeg, 0, leg);
   drawFlapStrip(ctx, leg * 2, foot, footMm);
-  drawFoldTicks(ctx, leg);
-  return [page1, composeAssemblyPage(footMm, opts.year)];
+  return sheet;
 }

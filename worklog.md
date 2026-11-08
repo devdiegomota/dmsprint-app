@@ -742,3 +742,29 @@ footPx (posição) e footMm (texto).
 `scroll_into_view_if_needed()` antes do bounding_box. 22 verificações verdes: pé
 63→70 mm (faces 117→113,5), drag muda a prévia, zoom 120%, ano 2028, PDF de 2 páginas
 A4 exatas, nuvem, e o fluxo completo dos 13 cartões.
+
+## Task 31 — Tenda A4: sem marcas de dobra, sem página de instruções, feriados com quebra de linha
+
+**Pedido do usuário:** (1) tirar as marcas de dobra das bordas; (2) eliminar a página
+de instruções do PDF — a DMS já entrega as tendas dobradas aos clientes; (3) nomes de
+feriados que não coubessem devem pular para a linha de baixo em vez de virar "…".
+
+**Código:**
+- `compose-tenda-a4.ts`: removidos `drawFoldTicks` (marcas tracejadas nas bordas nos
+  vincos), `drawFoldChip` e `composeAssemblyPage` (a página 2 inteira — diagrama,
+  chips, passos e zona de cola); `composeTendaA4Pages` → `composeTendaA4Sheet`
+  (retorna 1 canvas); nota da aba sem "guia de montagem no verso". Legenda dos
+  feriados do mini-mês: `wrapText` quebra em até 4 linhas (encolhe a fonte de 30s
+  até 22s antes de ocupar mais linhas; com feriados reais bastam 2) — removido o
+  `truncateToWidth` com reticências. A altura reservada `legendH` acompanha o nº de
+  linhas e a grade de dias se ajusta.
+- `pdf.ts`: `exportTendaA4Pdf(sheet)` — 1 página A4; `pages: 1`.
+- `page.tsx`: removidos os estados `previewPage`/`previewAssembly` e o toggle
+  "Folha impressa / Guia de montagem" da prévia; textos dos cards (Como imprimir,
+  Pé da tenda, Gerar PDF) sem referência à página 2 — a posição dos vincos agora é
+  só pelas medidas (faceMm e 2·faceMm da borda).
+- E2E: teste do guia trocado por verificação de que o toggle saiu; PDF A4 = 1 página.
+
+**Validação:** build + E2E 22 checks verde (1 página A4, 740 KB) e self-check visual:
+bordas limpas, fevereiro com "09/02 Carnaval / 10/02 Quarta-feira de Cinzas" em 2
+linhas e Novembro quebrando "…20/11 | Consciência Negra" — nome completo legível.

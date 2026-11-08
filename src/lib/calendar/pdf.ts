@@ -119,21 +119,17 @@ export async function exportCalendarPdf(
 }
 
 /**
- * Formato "Tenda A4 única" (Tasks 29–30): UMA folha com o calendário completo,
- * agora com PÉ (aba de colagem) — 2 páginas A4 para imprimir frente-e-verso
- * (virar pela borda longa):
- *  - página 1: verso (Jul–Dez) de cabeça para baixo em cima + frente (Jan–Jun)
- *    embaixo + aba do pé; dobre a cumeeira e o pé e cole a aba por dentro;
- *  - página 2: guia de montagem (fica para dentro da tenda).
- * `pages` vem de composeTendaA4Pages (duas folhas 2480 × 3508 px).
+ * Formato "Tenda A4 única" (Tasks 29–31): UMA folha com o calendário completo,
+ * com PÉ (aba de colagem) — 1 página A4 para imprimir frente-e-verso (virar
+ * pela borda longa): verso (Jul–Dez) de cabeça para baixo em cima + frente
+ * (Jan–Jun) embaixo + aba do pé. Dobre a cumeeira e o pé e cole a aba por
+ * dentro. Sem página de instruções: a DMS entrega as tendas já dobradas.
+ * `sheet` vem de composeTendaA4Sheet (folha 2480 × 3508 px).
  */
 export async function exportTendaA4Pdf(
-  pages: HTMLCanvasElement[],
+  sheet: HTMLCanvasElement,
   options: CalendarPdfOptions,
 ): Promise<CalendarPdfResult> {
-  if (pages.length !== 2) {
-    throw new Error(`Esperadas 2 páginas (folha + guia de montagem), recebidas ${pages.length}.`);
-  }
   const filename = normalizeFilename(options.filename);
   const quality = options.quality ?? 0.95;
 
@@ -141,10 +137,9 @@ export async function exportTendaA4Pdf(
     filename.replace(/\.pdf$/i, ""),
     "Calendário Tenda A4 — imprimir frente-e-verso (virar pela borda longa); dobra 1 cumeeira, dobra 2 pé, aba de colagem por dentro",
   );
-  appendSheetPage(pdf, pages[0], quality, true);
-  appendSheetPage(pdf, pages[1], quality, false);
+  appendSheetPage(pdf, sheet, quality, true);
 
   const blob = pdf.output("blob");
   downloadBlob(blob, filename);
-  return { filename, bytes: blob.size, pages: 2, blob };
+  return { filename, bytes: blob.size, pages: 1, blob };
 }

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""E2E do Calendário Tenda (Tasks 28–30): sobe /calendario local e valida os
+"""E2E do Calendário Tenda (Tasks 28–31): sobe /calendario local e valida os
 dois formatos.
 
 Formato "Tenda A4 única" (padrão da página): 2 artes, extração de cor, seletor
 de ano, pé ajustável (aba de colagem), editor de posicionamento da arte
-(arrastar + zoom), prévia da folha E do guia de montagem, PDF de 2 páginas A4
-e nuvem habilitada.
+(arrastar + zoom), prévia da folha (1 página, sem guia de montagem), PDF de
+1 página A4 e nuvem habilitada.
 Formato "13 cartões": troca de formato, 13 artes, prévia capa/março, PDF de
 13 páginas A4.
 
@@ -105,14 +105,9 @@ with sync_playwright() as p:
 
     previa.screenshot(path="/tmp/render/cal-e2e-a4-folha.png")
 
-    # Página 2: guia de montagem impresso no verso
-    page.get_by_role("button", name="Guia de montagem (verso)").click()
-    page.wait_for_timeout(900)
-    guia = page.locator("img[alt='Prévia do guia de montagem']")
-    checar(guia.count() == 1, "prévia do guia de montagem (página 2) disponível")
-    guia.screenshot(path="/tmp/render/cal-e2e-a4-guia.png")
-    page.get_by_role("button", name="Folha impressa (frente)").click()
-    page.wait_for_timeout(600)
+    # Sem página de instruções: o toggle do guia foi removido (PDF de 1 página)
+    checar(page.get_by_role("button", name="Guia de montagem (verso)").count() == 0,
+           "toggle do guia de montagem removido (PDF de 1 página)")
 
     with page.expect_download(timeout=180000) as dl:
         page.get_by_role("button", name="Gerar PDF e baixar").click()
@@ -120,7 +115,7 @@ with sync_playwright() as p:
     tam = os.path.getsize(PDF_A4)
     checar(tam > 300_000, f"PDF A4 baixado com tamanho plausível ({tam // 1024} KB)")
     r = PdfReader(PDF_A4)
-    checar(len(r.pages) == 2, f"2 páginas no PDF do formato A4 (encontradas: {len(r.pages)})")
+    checar(len(r.pages) == 1, f"1 página no PDF do formato A4 (encontradas: {len(r.pages)})")
     box = r.pages[0].mediabox
     checar(abs(float(box.width) - 595.28) < 1 and abs(float(box.height) - 841.89) < 1,
            f"página A4 em pontos ({float(box.width):.1f} × {float(box.height):.1f})")
