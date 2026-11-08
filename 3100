@@ -2,17 +2,11 @@
 - Local:         http://localhost:3100
 - Network:       http://21.0.14.4:3100
 - Environments: .env
-✓ Ready in 272ms
-✓ Running next.config.ts took 46ms
-Attention: Next.js now collects completely anonymous telemetry regarding usage.
-This information is used to shape Next.js' roadmap and prioritize features.
-You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
-https://nextjs.org/telemetry
-
+✓ Ready in 251ms
+✓ Running next.config.ts took 32ms
 
 ○ Compiling /calendario ...
- GET /calendario 200 in 411ms (next.js: 116ms, application-code: 295ms)
- GET /calendario 200 in 56ms (next.js: 1.3ms, application-code: 55ms)
- GET /calendario 200 in 53ms (next.js: 1.2ms, application-code: 52ms)
- GET /calendario 200 in 39ms (next.js: 3ms, application-code: 36ms)
+ GET /calendario 200 in 425ms (next.js: 116ms, application-code: 309ms)
+ GET /calendario 200 in 38ms (next.js: 1.1ms, application-code: 37ms)
+ GET /calendario 200 in 46ms (next.js: 1.4ms, application-code: 45ms)
 [?25h
