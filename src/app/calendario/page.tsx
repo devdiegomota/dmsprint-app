@@ -1,17 +1,21 @@
 "use client";
 
 /**
- * Calendário de Mesa Tenda 2027 (Tasks 28–29) — fluxo próprio, fora da imposição.
+ * Calendário de Mesa Tenda (Tasks 28–30) — fluxo próprio, fora da imposição.
  *
  * Dois formatos no mesmo fluxo:
- *  - "Tenda A4 única" (padrão): UM calendário completo por folha A4 — frente com
- *    arte + Jan–Jun, verso com arte + Jul–Dez (girado 180°). Dobra no meio, sem
- *    corte, sem duplex. Grade 2 × 3 de mini-meses ao lado da faixa de arte.
+ *  - "Tenda A4 única" (padrão): UM calendário completo por folha A4 impressa
+ *    FRENTE-E-VERSO (virar pela borda longa) — página 1 com verso (Jul–Dez,
+ *    de cabeça para baixo) + frente (Jan–Jun) + aba do pé; página 2 com o guia
+ *    de montagem. Dobra na cumeeira, dobra no pé, cola a aba por dentro →
+ *    triângulo com pé firme na mesa. Pé ajustável (45–80 mm).
  *  - "13 cartões": capa + 12 meses, 1 tenda por folha (mês seguinte no verso).
  *
  * Nos dois: arte do cliente + grade gerada automaticamente (feriados nacionais
  * BR, domingos destacados), cor dos textos ajustável — com extração da cor
- * dominante da arte —, prévia ao vivo, PDF 300 DPI e envio à Nuvem DMS.
+ * dominante da arte —, prévia ao vivo, PDF 300 DPI e envio à Nuvem DMS. No A4
+ * único a arte de cada face tem editor de posicionamento (arrastar/zoom/
+ * preencher/enquadrar) com a mesma matemática do PDF.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -47,13 +51,27 @@ import {
 } from "@/lib/calendar/compose";
 import { exportCalendarPdf, exportTendaA4Pdf } from "@/lib/calendar/pdf";
 import {
-  A4_FILENAME,
+  A4_ART_W_PX,
   A4_SLOT_LABELS,
-  composeTendaA4Sheet,
+  DEFAULT_PLACEMENT,
+  FOOT_DEFAULT_MM,
+  FOOT_MAX_MM,
+  FOOT_MIN_MM,
+  a4Filename,
+  composeTendaA4Pages,
+  legHeightPx,
+  type ArtPlacement,
 } from "@/lib/calendar/compose-tenda-a4";
 import { CALENDAR_YEAR } from "@/lib/calendar/dates";
+import { ArtPlacementEditor } from "./art-placement-editor";
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+
+/** Anos disponíveis no seletor — a grade e os feriados são recalculados por ano. */
+const YEARS = [2026, 2027, 2028, 2029, 2030];
+
+/** Formata mm aceitando meios (108,5). */
+const fmtMm = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1).replace(".", ","));
 
 /** Formatos do calendário: folha única completa ou 13 cartões (1 por mês). */
 type CalFormat = "a4" | "cartoes";
@@ -106,6 +124,19 @@ export default function CalendarioPage() {
   const [preview, setPreview] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
+  /** Ano do calendário (grade e feriados recalculados). */
+  const [year, setYear] = useState(CALENDAR_YEAR);
+  /** Pé da tenda (aba de colagem) em mm — o resto da altura vira as 2 faces. */
+  const [footMm, setFootMm] = useState(FOOT_DEFAULT_MM);
+  /** Posicionamento da arte por slot (editor arrastar/zoom). */
+  const [placements, setPlacements] = useState<ArtPlacement[]>([
+    DEFAULT_PLACEMENT,
+    DEFAULT_PLACEMENT,
+  ]);
+  /** Página mostrada na prévia do A4: a folha impressa ou o guia de montagem. */
+  const [previewPage, setPreviewPage] = useState<"folha" | "montagem">("folha");
+  const [previewAssembly, setPreviewAssembly] = useState<string | null>(null);
+
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
@@ -116,6 +147,8 @@ export default function CalendarioPage() {
   const multiInputRef = useRef<HTMLInputElement>(null);
 
   const isA4 = format === "a4";
+  const legH = legHeightPx(footMm).leg;
+  const faceMm = (297 - footMm) / 2;
   const slotCount = isA4 ? A4_SLOT_LABELS.length : PANEL_COUNT;
   const slotLabel = (i: number) => (isA4 ? A4_SLOT_LABELS[i] : panelLabel(i));
   const filled = thumbs.slice(0, slotCount).filter(Boolean).length;
@@ -127,6 +160,15 @@ export default function CalendarioPage() {
   const switchFormat = (next: CalFormat) => {
     setFormat(next);
     setSelected(0);
+    setPreviewPage("folha");
+  };
+
+  /** Troca o ano; se o título ainda é o automático "Calendário AAAA", acompanha. */
+  const changeYear = (next: number) => {
+    setYear(next);
+    setStyle((s) =>
+      /^Calendário \d{4}$/.test(s.coverTitle) ? { ...s, coverTitle: `Calendário ${next}` } : s,
+    );
   };
 
   /** No A4 único: copia a arte da frente para o verso (mesma arte nos dois lados). */
@@ -139,6 +181,7 @@ export default function CalendarioPage() {
       next[1] = art.toDataURL("image/jpeg", 0.55);
       return next;
     });
+    setPlacements((prev) => [prev[0], prev[0]]);
     setVersion((v) => v + 1);
   };
 
@@ -156,6 +199,10 @@ export default function CalendarioPage() {
             next[replaceSlot] = art.toDataURL("image/jpeg", 0.55);
             return next;
           });
+          // Arte nova, enquadramento novo: zera o posicionamento deste slot.
+          setPlacements((prev) =>
+            prev.map((p, i) => (i === replaceSlot ? DEFAULT_PLACEMENT : p)),
+          );
           setSelected(replaceSlot);
           setVersion((v) => v + 1);
           return;
@@ -176,6 +223,7 @@ export default function CalendarioPage() {
           slot++;
           count++;
         }
+        setPlacements([DEFAULT_PLACEMENT, DEFAULT_PLACEMENT]);
         setVersion((v) => v + 1);
         toast({
           title: `${count} arte${count > 1 ? "s" : ""} importada${count > 1 ? "s" : ""}`,
@@ -197,18 +245,30 @@ export default function CalendarioPage() {
     [toast, isA4, slotCount],
   );
 
-  // Prévia — recomposta ao trocar arte, painel, formato ou estilo.
-  // No A4 único mostra a folha inteira (frente embaixo, verso invertido em cima);
-  // nos 13 cartões mostra a face selecionada.
+  // Prévia — recomposta ao trocar arte, painel, formato, estilo, ano, pé ou
+  // posicionamento da arte. No A4 único gera as 2 páginas (folha + guia de
+  // montagem); nos 13 cartões mostra a face selecionada.
   useEffect(() => {
     let alive = true;
     const timer = setTimeout(() => {
       try {
         if (isA4) {
-          const sheet = composeTendaA4Sheet(artsRef.current[0], artsRef.current[1], style);
-          const url = sheet.toDataURL("image/jpeg", 0.9);
+          const [page1, page2] = composeTendaA4Pages(
+            artsRef.current[0],
+            artsRef.current[1],
+            style,
+            {
+              footMm,
+              year,
+              placementFront: placements[0],
+              placementBack: placements[1],
+            },
+          );
+          const url = page1.toDataURL("image/jpeg", 0.9);
+          const url2 = page2.toDataURL("image/jpeg", 0.9);
           if (alive) {
             setPreview(url);
+            setPreviewAssembly(url2);
             setPreviewError(null);
           }
         } else {
@@ -227,7 +287,7 @@ export default function CalendarioPage() {
       alive = false;
       clearTimeout(timer);
     };
-  }, [selected, style, version, isA4]);
+  }, [selected, style, version, isA4, footMm, year, placements]);
 
   const handleExtractColor = () => {
     // No A4 único a referência é a arte da frente; nos 13 cartões, a do painel aberto.
@@ -277,15 +337,24 @@ export default function CalendarioPage() {
     setExportProgress(0);
     try {
       if (isA4) {
-        const sheet = composeTendaA4Sheet(artsRef.current[0], artsRef.current[1], style);
+        const [page1, page2] = composeTendaA4Pages(
+          artsRef.current[0],
+          artsRef.current[1],
+          style,
+          { footMm, year, placementFront: placements[0], placementBack: placements[1] },
+        );
         setExportProgress(60);
         await tick();
-        const result = await exportTendaA4Pdf(sheet, { filename: A4_FILENAME, quality: 0.95 });
+        const result = await exportTendaA4Pdf([page1, page2], {
+          filename: a4Filename(year),
+          quality: 0.95,
+        });
         setPdfBlob(result.blob);
         setExportProgress(100);
         toast({
           title: "PDF gerado com sucesso",
-          description: "1 folha com o calendário completo — o download começou. Dobre UMA folha de teste antes de rodar tudo.",
+          description:
+            "2 páginas A4 (folha + guia de montagem) — o download começou. Imprima frente-e-verso (virar pela borda longa) e dobre UMA folha de teste.",
         });
       } else {
         const faces: HTMLCanvasElement[] = [];
@@ -328,9 +397,9 @@ export default function CalendarioPage() {
         pdfBlob,
         isA4
           ? {
-              name: A4_FILENAME,
+              name: a4Filename(year),
               product: "calendario-tenda-a4",
-              productName: "Calendário Tenda A4 (1 folha)",
+              productName: "Calendário Tenda A4 (com pé)",
             }
           : {
               name: "calendario-tenda-2027.pdf",
@@ -369,12 +438,12 @@ export default function CalendarioPage() {
             </Button>
             <h1 className="flex items-center gap-2 text-base font-semibold sm:text-lg">
               <CalendarDays className="h-5 w-5 text-primary" />
-              Calendário de Mesa Tenda {CALENDAR_YEAR}
+              Calendário de Mesa Tenda {year}
             </h1>
           </div>
           <p className="hidden text-xs text-muted-foreground sm:block">
             {isA4
-              ? "1 folha A4 · calendário completo · dobra no meio"
+              ? "1 folha A4 frente-e-verso · tenda com pé · 2 vincos"
               : "Tenda A5 · 1 por folha A4 · dobra no meio"}
           </p>
         </div>
@@ -400,7 +469,8 @@ export default function CalendarioPage() {
                 <span className="block text-sm font-semibold">Tenda A4 única</span>
                 <span className="block text-xs text-muted-foreground">
                   1 folha com o calendário completo: frente com arte + Jan–Jun, verso com arte +
-                  Jul–Dez. Dobra no meio e pronto.
+                  Jul–Dez. Imprima frente-e-verso, dobre a cumeeira e o pé e cole a aba — tenda
+                  triangular firme na mesa.
                 </span>
               </button>
               <button
@@ -511,28 +581,98 @@ export default function CalendarioPage() {
             </CardContent>
           </Card>
 
+          {isA4 && thumbs[selected] && artsRef.current[selected] && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Ajuste da arte — {slotLabel(selected)}</CardTitle>
+                <CardDescription>
+                  Posicione, recorte e dê zoom na arte exatamente onde ela vai imprimir.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ArtPlacementEditor
+                  art={artsRef.current[selected]}
+                  bandW={A4_ART_W_PX}
+                  bandH={legH}
+                  placement={placements[selected] ?? DEFAULT_PLACEMENT}
+                  onChange={(p) =>
+                    setPlacements((prev) => prev.map((x, i) => (i === selected ? p : x)))
+                  }
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          {isA4 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Pé da tenda (aba de colagem)</CardTitle>
+                <CardDescription>
+                  A aba dobra para dentro e cola na face de trás — vira o assoalho do triângulo.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-2">
+                <input
+                  id="foot-range"
+                  type="range"
+                  min={FOOT_MIN_MM}
+                  max={FOOT_MAX_MM}
+                  step={1}
+                  value={footMm}
+                  onChange={(e) => setFootMm(Number(e.target.value))}
+                  className="w-full accent-primary"
+                  aria-label="Largura do pé da tenda em milímetros"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>{FOOT_MIN_MM} mm</span>
+                  <span className="text-sm font-semibold text-foreground">{footMm} mm</span>
+                  <span>{FOOT_MAX_MM} mm</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Faces com {fmtMm(faceMm)} mm de altura cada. Pé maior = tenda mais aberta e
+                  estável; menor = tenda mais fechada. As marcas de dobra e as instruções de
+                  montagem saem impressas no PDF.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Como imprimir</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm text-muted-foreground">
-              <p>1. Imprima em escala 100% (sem ajustar à página), só a frente do papel.</p>
               {isA4 ? (
-                <p>
-                  2. A metade de cima do PDF sai <strong>de cabeça para baixo</strong> — é a
-                  traseira da tenda (Jul–Dez). É assim mesmo.
-                </p>
+                <>
+                  <p>
+                    1. Imprima <strong>frente e verso</strong> (virar pela borda LONGA), escala
+                    100%, em papel de 250–300 g.
+                  </p>
+                  <p>
+                    2. Na página 1 a metade de cima sai <strong>de cabeça para baixo</strong> — é a
+                    traseira da tenda (Jul–Dez). É assim mesmo. A página 2 é o guia de montagem e
+                    fica para dentro.
+                  </p>
+                  <p>
+                    3. Dobre na cumeeira (a {fmtMm(faceMm)} mm da borda) e no pé (a{" "}
+                    {fmtMm(faceMm * 2)} mm); a aba de {footMm} mm cola por dentro.
+                  </p>
+                  <p>
+                    4. Dobre UMA folha de teste antes da tiragem. Na tenda montada: frente com
+                    Jan–Jun, traseira com Jul–Dez, pé firme na mesa.
+                  </p>
+                </>
               ) : (
-                <p>
-                  2. A metade de cima do PDF sai <strong>de cabeça para baixo</strong> — é o verso
-                  da tenda (mês seguinte). É assim mesmo.
-                </p>
+                <>
+                  <p>1. Imprima em escala 100% (sem ajustar à página), só a frente do papel.</p>
+                  <p>
+                    2. A metade de cima do PDF sai <strong>de cabeça para baixo</strong> — é o verso
+                    da tenda (mês seguinte). É assim mesmo.
+                  </p>
+                  <p>3. Dobre no meio (a 148,5 mm da borda) com vinco — em 250–300 g o vinco evita rachadura.</p>
+                  <p>4. Dobre UMA folha de teste antes de rodar a tiragem.</p>
+                </>
               )}
-              <p>3. Dobre no meio (a 148,5 mm da borda) com vinco — em 250–300 g o vinco evita rachadura.</p>
-              <p>
-                4. Dobre UMA folha de teste antes de rodar a tiragem.
-                {isA4 && " Na tenda montada: frente com Jan–Jun, traseira com Jul–Dez."}
-              </p>
             </CardContent>
           </Card>
         </div>
@@ -557,26 +697,51 @@ export default function CalendarioPage() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label>Enquadramento da arte</Label>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={style.fitMode === "cover" ? "default" : "outline"}
-                    onClick={() => setFit("cover")}
-                  >
-                    Preencher
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={style.fitMode === "contain" ? "default" : "outline"}
-                    onClick={() => setFit("contain")}
-                  >
-                    Conter
-                  </Button>
-                </div>
+                <Label htmlFor="cal-year">Ano do calendário</Label>
+                <select
+                  id="cal-year"
+                  data-testid="year-select"
+                  value={year}
+                  onChange={(e) => changeYear(Number(e.target.value))}
+                  className="h-9 rounded-md border bg-background px-3 text-sm shadow-sm"
+                >
+                  {YEARS.map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  A grade e os feriados nacionais são recalculados para o ano escolhido.
+                </p>
               </div>
+              {!isA4 && (
+                <div className="grid gap-2">
+                  <Label>Enquadramento da arte</Label>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={style.fitMode === "cover" ? "default" : "outline"}
+                      onClick={() => setFit("cover")}
+                    >
+                      Preencher
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={style.fitMode === "contain" ? "default" : "outline"}
+                      onClick={() => setFit("contain")}
+                    >
+                      Conter
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    No formato A4 único, o ajuste fino da arte fica em
+                    &quot;Ajuste da arte&quot; (arrastar e zoom por face).
+                  </p>
+                </div>
+              )}
               <div className="grid gap-2">
                 <Label htmlFor="text-color">Cor dos textos</Label>
                 <div className="flex items-center gap-2">
@@ -621,26 +786,48 @@ export default function CalendarioPage() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">
-                {isA4 ? "Prévia — folha completa" : `Prévia — ${panelLabel(selected)}`}
-              </CardTitle>
-              <CardDescription>
-                {isA4
-                  ? "Frente (Jan–Jun) embaixo e verso (Jul–Dez) invertido em cima — exatamente como sai no PDF."
-                  : selected === 0
-                    ? `Capa com o título e o ano ${CALENDAR_YEAR}.`
-                    : selected < PANEL_COUNT
-                      ? `Verso deste cartão: ${panelLabel((selected + 1) % PANEL_COUNT)} (sai invertido no PDF).`
-                      : ""}
-              </CardDescription>
+            <CardTitle className="text-base">
+              {isA4 ? "Prévia — folha completa" : `Prévia — ${panelLabel(selected)}`}
+            </CardTitle>
+            <CardDescription>
+              {isA4
+                ? "Página 1 = folha impressa (o verso sai de cabeça para baixo — é assim mesmo). Página 2 = guia de montagem, impresso no verso do papel."
+                : selected === 0
+                  ? `Capa com o título e o ano ${CALENDAR_YEAR}.`
+                  : selected < PANEL_COUNT
+                    ? `Verso deste cartão: ${panelLabel((selected + 1) % PANEL_COUNT)} (sai invertido no PDF).`
+                    : ""}
+            </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
+              {isA4 && (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={previewPage === "folha" ? "default" : "outline"}
+                    onClick={() => setPreviewPage("folha")}
+                  >
+                    Folha impressa (frente)
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={previewPage === "montagem" ? "default" : "outline"}
+                    onClick={() => setPreviewPage("montagem")}
+                  >
+                    Guia de montagem (verso)
+                  </Button>
+                </div>
+              )}
               {previewError ? (
                 <p className="text-sm text-destructive">{previewError}</p>
-              ) : preview ? (
+              ) : (isA4 && previewPage === "montagem" ? previewAssembly : preview) ? (
                 <img
-                  src={preview}
-                  alt={`Prévia ${isA4 ? "da folha completa" : `do painel ${panelLabel(selected)}`}`}
+                  src={
+                    (isA4 && previewPage === "montagem" ? previewAssembly : preview) as string
+                  }
+                  alt={`Prévia ${isA4 ? (previewPage === "montagem" ? "do guia de montagem" : "da folha completa") : `do painel ${panelLabel(selected)}`}`}
                   className={
                     isA4
                       ? "mx-auto w-full max-w-sm rounded-md border shadow-sm"
@@ -677,7 +864,7 @@ export default function CalendarioPage() {
               <CardTitle className="text-base">Gerar PDF</CardTitle>
               <CardDescription>
                 {isA4
-                  ? "1 folha A4 (300 DPI) com o calendário completo: frente Jan–Jun, verso Jul–Dez."
+                  ? "2 páginas A4 (300 DPI): a folha impressa (frente Jan–Jun, verso Jul–Dez, aba do pé) e o guia de montagem. Imprima frente-e-verso, virar pela borda longa."
                   : "13 folhas A4 (300 DPI): capa + 12 meses, cada uma com o mês seguinte no verso."}
                 {!canExport && (isA4 ? " Falta a arte da frente." : ` Faltam ${slotCount - filled} artes.`)}
               </CardDescription>

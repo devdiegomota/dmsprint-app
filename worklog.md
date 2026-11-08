@@ -700,3 +700,45 @@ sessão — A4: 2 slots, extração (#1e8dd8), PDF de 1 página A4 exata, nuvem;
 13 cartões: troca de formato, multi-upload preenche os 11 restantes, 13 páginas.
 Pegadinha de sessão: dev server velho da Task 28 segurava a 3100 com código velho
 (fuser não matou; `ss -ltnp` → kill -9 do PID).
+
+## Task 30 — Tenda com pé dobrável (aba de colagem) + editor de posicionamento da arte
+
+**Pedido do usuário:** (1) a tenda é com PÉ dobrável — o triângulo fecha com uma aba de
+emenda, então a "margem do pé" precisa existir e ser ajustável; (2) poder manipular,
+cortar e ajustar a arte do cliente no lugar certo, pois ela chega em tamanho diferente.
+
+**Física da dobra (2 vincos):** o perímetro do triângulo é a altura do papel —
+2·face + pé = 297 mm ⇒ face = (297 − pé)/2 (117 mm com pé padrão de 63 mm; faixa
+45–80 mm, pé maior = tenda mais aberta/estável). Dobra 1 = cumeeira (une as faces),
+Dobra 2 = pé (aba dobra para dentro e cola na face de trás, virando o assoalho).
+A folha passou a ser impressa FRENTE-E-VERSO (virar pela borda longa): página 1 =
+verso de cabeça para baixo + frente + aba; página 2 = guia de montagem (área livre).
+
+**Código:**
+- `compose-tenda-a4.ts` reescrito: `legHeightPx` (fecha a folha exata em 3508 px),
+  métricas dos mini-meses/título escalam com a face (`s = leg/1754`),
+  `drawFoldTicks` (marcas brancas nas bordas, nos vincos exatos), `drawFlapStrip`
+  (aba em branco com nota), `composeAssemblyPage` (guia: diagrama do triângulo com
+  cotas, chips "DOBRA 1·CUMEEIRA / 2·PÉ — vinco a X mm", 5 passos numerados, zona de
+  COLA hachurada de 20 mm na borda livre da aba). **ArtPlacement** {fitMode, zoom,
+  fx, fy} + `computeArtRect`/`panPlacement`: UMA matemática para editor e PDF.
+- `art-placement-editor.tsx`: canvas da faixa (mesma proporção da impressa), arrastar
+  com pointer capture + conversão CSS px→px da faixa, zoom por roda (listener
+  não-passivo) e slider 100–400%, botões Preencher/Enquadrar/Centralizar.
+- `pdf.ts`: `exportTendaA4Pdf(pages[2])` — 2 páginas A4.
+- `page.tsx`: card "Pé da tenda" (slider 45–80 mm, mostra a altura das faces), card
+  "Ajuste da arte" por slot (reset ao trocar a arte), toggle de prévia
+  folha/guia, seletor de ano 2026–2030 (título automático "Calendário AAAA"
+  acompanha; botões Preencher/Conter globais só no formato 13 cartões).
+- `dates.ts`: `holidaysForYear` com cache; `holidayOf`/`holidayLegend` por ano.
+
+**Bugs pegos no self-check visual do PDF (unidades mm × px):** passei o pé em px (744)
+onde o guia esperava mm → chips "vinco a −223,5 mm" e diagrama NaN (sumiu). Normalizado
+em `composeTendaA4Pages` (footMm uma vez; px só na geometria). Depois o mesmo erro no
+posicionamento da nota da aba (texto subiu para o vinco) → `drawFlapStrip` recebe
+footPx (posição) e footMm (texto).
+
+**E2E:** arrastar no editor falhava no teste por coordenadas fora do viewport —
+`scroll_into_view_if_needed()` antes do bounding_box. 22 verificações verdes: pé
+63→70 mm (faces 117→113,5), drag muda a prévia, zoom 120%, ano 2028, PDF de 2 páginas
+A4 exatas, nuvem, e o fluxo completo dos 13 cartões.

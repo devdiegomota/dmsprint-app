@@ -98,6 +98,18 @@ export function holidaysBR(year: number): Holiday[] {
 /** Feriados do ano do calendário, pré-calculados. */
 export const HOLIDAYS: Holiday[] = holidaysBR(CALENDAR_YEAR);
 
+const holidayCache = new Map<number, Holiday[]>();
+
+/** Feriados de um ano qualquer (com cache) — o seletor de ano usa isto. */
+export function holidaysForYear(year: number): Holiday[] {
+  let list = holidayCache.get(year);
+  if (!list) {
+    list = holidaysBR(year);
+    holidayCache.set(year, list);
+  }
+  return list;
+}
+
 /** Dia da semana (0 = domingo … 6 = sábado) — UTC para não sofrer fuso. */
 export function weekdayOf(year: number, month: number, day: number): number {
   return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
@@ -112,7 +124,7 @@ export function isSunday(year: number, month: number, day: number): boolean {
 }
 
 export function holidayOf(year: number, month: number, day: number): Holiday | null {
-  return HOLIDAYS.find((h) => h.month === month && h.day === day) ?? null;
+  return holidaysForYear(year).find((h) => h.month === month && h.day === day) ?? null;
 }
 
 export interface CalendarCell {
@@ -153,7 +165,7 @@ export function buildMonthGrid(year: number, month: number): (CalendarCell | nul
 
 /** Lista de feriados de um mês, "dd/mm nome", para a legenda sob a grade. */
 export function holidayLegend(year: number, month: number): string[] {
-  return HOLIDAYS.filter((h) => h.month === month).map(
+  return holidaysForYear(year).filter((h) => h.month === month).map(
     (h) => `${String(h.day).padStart(2, "0")}/${String(h.month).padStart(2, "0")} ${h.name}`,
   );
 }

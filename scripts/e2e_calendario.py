@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""E2E do Calendário Tenda (Tasks 28–29): sobe /calendario local e valida os
+"""E2E do Calendário Tenda (Tasks 28–30): sobe /calendario local e valida os
 dois formatos.
 
-Formato "Tenda A4 única" (padrão da página): 2 artes, extração de cor, prévia
-da folha completa, PDF de 1 página A4 e nuvem habilitada.
+Formato "Tenda A4 única" (padrão da página): 2 artes, extração de cor, seletor
+de ano, pé ajustável (aba de colagem), editor de posicionamento da arte
+(arrastar + zoom), prévia da folha E do guia de montagem, PDF de 2 páginas A4
+e nuvem habilitada.
 Formato "13 cartões": troca de formato, 13 artes, prévia capa/março, PDF de
 13 páginas A4.
 
@@ -17,7 +19,7 @@ import sys
 from pypdf import PdfReader
 from playwright.sync_api import sync_playwright
 
-BASE = "http://localhost:3100"
+BASE = os.environ.get("CAL_BASE", "http://localhost:3100")
 ARTES = sorted(glob.glob("/tmp/cal-artes/*.jpg"))
 PDF_A4 = "/tmp/cal-a4.pdf"
 PDF_13 = "/tmp/cal-teste.pdf"
@@ -46,7 +48,7 @@ with sync_playwright() as p:
 
     previa = page.locator("img[alt^='Prévia']")
 
-    # ============ Formato 1: Tenda A4 única (1 folha, calendário completo) ============
+    # ============ Formato 1: Tenda A4 única (pé + editor de arte) ============
     multi = page.locator("input[type=file][multiple]")
     multi.set_input_files(ARTES[:2])  # capa (azul) → frente; janeiro (vermelho) → verso
     page.wait_for_timeout(2500)
@@ -57,8 +59,60 @@ with sync_playwright() as p:
     valor_cor = page.locator("#text-color").input_value()
     checar(valor_cor != "#292524", f"cor extraída da arte mudou o texto ({valor_cor})")
 
+    # Seletor de ano: 2028 atualiza o título automático da capa; volta para 2027
+    page.locator("#cal-year").select_option("2028")
+    page.wait_for_timeout(400)
+    checar(page.locator("#cover-title").input_value() == "Calendário 2028",
+           "seletor de ano atualiza o título automático da capa")
+    page.locator("#cal-year").select_option("2027")
+    page.wait_for_timeout(400)
+
+    # Pé ajustável: padrão 63 mm (faces de 117 mm) → 70 mm (faces de 113,5 mm)
+    corpo = page.locator("main").inner_text()
+    checar("117 mm de altura" in corpo, "pé padrão de 63 mm → faces de 117 mm")
+    page.locator("#foot-range").focus()
+    for _ in range(7):
+        page.keyboard.press("ArrowRight")
+    page.wait_for_timeout(400)
+    checar("113,5 mm de altura" in page.locator("main").inner_text(),
+           "pé em 70 mm → faces de 113,5 mm")
+    for _ in range(7):
+        page.keyboard.press("ArrowLeft")
+    page.wait_for_timeout(400)
+
+    # Editor de posicionamento: arrastar muda a prévia; zoom pelo slider
+    editor = page.locator("canvas[data-testid='art-band-editor']")
+    checar(editor.is_visible(), "editor da arte visível no formato A4")
+    page.wait_for_timeout(800)
+    src0 = previa.get_attribute("src")
+    editor.scroll_into_view_if_needed()
+    page.wait_for_timeout(300)
+    caixa = editor.bounding_box()
+    cx, cy = caixa["x"] + caixa["width"] / 2, caixa["y"] + caixa["height"] / 2
+    page.mouse.move(cx, cy)
+    page.mouse.down()
+    page.mouse.move(cx + 70, cy, steps=6)
+    page.mouse.up()
     page.wait_for_timeout(900)
+    checar(previa.get_attribute("src") != src0, "arrastar a arte reposiciona o recorte na prévia")
+    page.locator("[data-testid='art-zoom']").focus()
+    for _ in range(10):
+        page.keyboard.press("ArrowRight")
+    page.wait_for_timeout(500)
+    checar("120%" in page.locator("main").inner_text(), "zoom da arte em 120% pelo slider")
+    page.get_by_role("button", name="Centralizar").click()
+    page.wait_for_timeout(800)
+
     previa.screenshot(path="/tmp/render/cal-e2e-a4-folha.png")
+
+    # Página 2: guia de montagem impresso no verso
+    page.get_by_role("button", name="Guia de montagem (verso)").click()
+    page.wait_for_timeout(900)
+    guia = page.locator("img[alt='Prévia do guia de montagem']")
+    checar(guia.count() == 1, "prévia do guia de montagem (página 2) disponível")
+    guia.screenshot(path="/tmp/render/cal-e2e-a4-guia.png")
+    page.get_by_role("button", name="Folha impressa (frente)").click()
+    page.wait_for_timeout(600)
 
     with page.expect_download(timeout=180000) as dl:
         page.get_by_role("button", name="Gerar PDF e baixar").click()
@@ -66,7 +120,7 @@ with sync_playwright() as p:
     tam = os.path.getsize(PDF_A4)
     checar(tam > 300_000, f"PDF A4 baixado com tamanho plausível ({tam // 1024} KB)")
     r = PdfReader(PDF_A4)
-    checar(len(r.pages) == 1, f"1 página no PDF do formato A4 (encontradas: {len(r.pages)})")
+    checar(len(r.pages) == 2, f"2 páginas no PDF do formato A4 (encontradas: {len(r.pages)})")
     box = r.pages[0].mediabox
     checar(abs(float(box.width) - 595.28) < 1 and abs(float(box.height) - 841.89) < 1,
            f"página A4 em pontos ({float(box.width):.1f} × {float(box.height):.1f})")
