@@ -131,6 +131,31 @@ export const PRODUCTS: Record<ProductId, ProductSpec> = {
   },
 };
 
+/** Produto com fluxo próprio (página dedicada, fora do pipeline de imposição).
+ *  Novo produto próprio = nova entrada em PRODUCT_FLOWS — aparece sozinho na
+ *  grade "Tipo de produto" da home. */
+export interface ProductFlow {
+  id: string;
+  /** ProductIds que este fluxo substitui (variantes do mesmo produto ficam
+   *  fora da grade de imposição — ex.: "calendario-tenda" e "-a4"). */
+  productIds: readonly string[];
+  name: string;
+  description: string;
+  href: string;
+}
+
+/** Fluxos próprios atuais. O id coincide com o ProductId principal em PRODUCTS
+ *  quando existe (usado pela Nuvem DMS para identificar o produto). */
+export const PRODUCT_FLOWS: readonly ProductFlow[] = [
+  {
+    id: "calendario-tenda",
+    productIds: ["calendario-tenda", "calendario-tenda-a4"],
+    name: "Calendário de Mesa Tenda",
+    description: "Fluxo guiado com editor de arte — PDF pronto para imprimir",
+    href: "/calendario",
+  },
+];
+
 export const A4 = {
   widthMm: 210,
   heightMm: 297,

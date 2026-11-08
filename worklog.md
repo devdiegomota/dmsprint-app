@@ -825,3 +825,34 @@ faixa era fixa em 760 px (≈ 64,5 mm) por constante.
   sintético via evaluate NÃO move o React 19 — value tracker engole). 32 verificações
   verdes (eram 28). Screenshots das extremidades: 100 mm mostra até o contorno da arte
   de teste (antes cortado) e 45 mm mantém título/ano legíveis com fitFont.
+
+## Task 34 — Acesso ao Calendário sai do header e vai para a grade "Tipo de produto"
+
+**Pedido do usuário:** mover o acesso à página de calendário do topo para a tela de
+tipo de produto da home — formando um catálogo que cresce conforme novos produtos
+ganham página própria.
+
+**Código:**
+- `constants.ts`: novo registro `PRODUCT_FLOWS` (id, productIds, name, description,
+  href) — produto novo com fluxo próprio = uma entrada aqui, e a home se atualiza
+  sozinha. `productIds` lista TODAS as variantes que o fluxo substitui (o self-check
+  visual pegou o bug: comparando só o id, "calendario-tenda-a4" vazava na grade de
+  imposição; o filtro antigo usava prefixo e pegava as duas).
+- `upload-panel.tsx`: filtro da grade passa a consultar `PRODUCT_FLOWS` (comentário
+  atualizado) e, abaixo dos produtos de imposição, tiles `<Link>` "Abrir fluxo →" com
+  ícone grande (CalendarDays para o calendário, Wrench como fallback) e descrição —
+  mesma linguagem visual dos tiles de produto.
+- `page.tsx`: removidos os dois botões do header (desktop com texto e mobile só
+  ícone) e os imports órfãos (Link, CalendarDays). O /calendario já tinha "Voltar ao
+  início".
+- E2E (scripts/e2e_calendario.py): 4 checks novos no início — header sem link
+  /calendario, tile "Abrir fluxo" na grade, variante A4 fora da grade, e clique no
+  tile navegando até /calendario. 35 verificações verdes (eram 32). A home nunca fica
+  networkidle (contador da Nuvem mantém tráfego) — goto usa domcontentloaded; o tile é
+  <a> real, não depende de hidratação.
+- Descobertas operacionais: (1) processo nohup não sobrevive ao fim da chamada de
+  shell neste sandbox — dev server para E2E precisa do run_in_background do tool (na
+  3100 via npx direto; "npm run dev -- -p 3100" ignora a porta). (2) pkill com padrão
+  entre colchetes não protege se OUTRO trecho do próprio comando contém o literal —
+  o heredoc do worklog citava o comando do servidor e o shell se auto-matou; rodar
+  pkill isolado em sua própria chamada.

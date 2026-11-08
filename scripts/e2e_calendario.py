@@ -43,6 +43,20 @@ with sync_playwright() as p:
     erros_console = []
     page.on("pageerror", lambda e: erros_console.append(str(e)))
 
+    # ============ Navegação: acesso ao calendário pela grade "Tipo de produto" ============
+    # A home mantém tráfego permanente (contador da Nuvem) — networkidle nunca dispara;
+    # o tile é <a> real, então domcontentloaded basta.
+    page.goto(BASE, wait_until="domcontentloaded", timeout=90000)
+    html_home = page.content().replace("<!-- -->", "")
+    header = page.locator("header")
+    checar(header.locator("a[href='/calendario']").count() == 0, "header da home NÃO tem mais botão do calendário")
+    checar("Abrir fluxo" in html_home, "grade 'Tipo de produto' mostra o tile 'Abrir fluxo' do calendário")
+    checar("Calendário Tenda A4" not in html_home, "variante A4 também sai da grade de imposição (ambas viram fluxo)")
+    tile = page.locator("a[href='/calendario']").first
+    tile.click()
+    page.wait_for_url(f"{BASE}/calendario", wait_until="networkidle")
+    checar("Calendário de Mesa Tenda 2027" in page.content().replace("<!-- -->", ""), "tile da home leva à página /calendario")
+
     page.goto(f"{BASE}/calendario", wait_until="networkidle")
     # SSR insere <!-- --> entre nós de texto JSX; normaliza antes de buscar o título
     html = page.content().replace("<!-- -->", "")

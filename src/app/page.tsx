@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import NextImage from "next/image";
-import { RefreshCcw, Moon, Sun, Cloud, CalendarDays } from "lucide-react";
+import { RefreshCcw, Moon, Sun, Cloud } from "lucide-react";
 import logoLight from "@/assets/dms-print-logo.png";
 import logoDark from "@/assets/dms-print-logo-dark.png";
 import { useTheme } from "next-themes";
@@ -358,22 +357,6 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              asChild
-              className="hidden text-muted-foreground sm:inline-flex"
-            >
-              <Link href="/calendario">
-                <CalendarDays className="h-4 w-4" />
-                Calendário Tenda
-              </Link>
-            </Button>
-            <Button variant="ghost" size="icon" asChild className="sm:hidden">
-              <Link href="/calendario" aria-label="Calendário de Mesa Tenda">
-                <CalendarDays className="h-5 w-5" />
-              </Link>
-            </Button>
             <NuvemButton onOpen={() => setNuvemOpen(true)} />
             <ThemeToggle />
           </div>

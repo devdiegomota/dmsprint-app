@@ -1,12 +1,30 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { CreditCard, FileImage, Scan, Loader2, ImageIcon, Square } from "lucide-react";
+import Link from "next/link";
+import {
+  ArrowRight,
+  CalendarDays,
+  CreditCard,
+  FileImage,
+  Scan,
+  Loader2,
+  ImageIcon,
+  Square,
+  Wrench,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { PRODUCTS, type ProductId, A4, productPixelSize, fmtMm } from "@/lib/print/constants";
+import {
+  PRODUCTS,
+  PRODUCT_FLOWS,
+  type ProductId,
+  A4,
+  productPixelSize,
+  fmtMm,
+} from "@/lib/print/constants";
 
 /** Mini-diagrama da imposição (grade) para o produto — derivado das medidas do spec. */
 function LayoutDiagram({ product }: { product: ProductId }) {
@@ -88,9 +106,10 @@ export function UploadPanel({
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2">
           {(Object.keys(PRODUCTS) as ProductId[])
-            // Os calendários tenda têm fluxo próprio (página /calendario) — não são
-            // peças impostas na grade A4, então não entram no seletor deste painel.
-            .filter((id) => !id.startsWith("calendario-tenda"))
+            // Peças impostas na grade A4. Os produtos com fluxo próprio (calendários
+            // etc.) ficam em PRODUCT_FLOWS e entram como atalho logo abaixo — novo
+            // fluxo = nova entrada lá, sem tocar neste painel.
+            .filter((id) => !PRODUCT_FLOWS.some((f) => f.productIds.includes(id)))
             .map((id) => {
             const spec = PRODUCTS[id];
             const selected = product === id;
@@ -133,6 +152,33 @@ export function UploadPanel({
               </button>
             );
           })}
+          {/* Fluxos próprios — abrem página dedicada, sem upload aqui. */}
+          {PRODUCT_FLOWS.map((flow) => (
+            <Link
+              key={flow.id}
+              href={flow.href}
+              className={cn(
+                "group flex flex-col items-center gap-3 rounded-xl border p-4 text-center transition-all",
+                "border-border bg-muted/40 hover:border-amber-600/50 hover:bg-muted/60",
+              )}
+            >
+              <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-amber-600/15">
+                {flow.id === "calendario-tenda" ? (
+                  <CalendarDays className="h-9 w-9 text-amber-600" aria-hidden />
+                ) : (
+                  <Wrench className="h-9 w-9 text-amber-600" aria-hidden />
+                )}
+              </div>
+              <div>
+                <p className="font-semibold">{flow.name}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{flow.description}</p>
+                <Badge variant="secondary" className="mt-2 gap-1">
+                  Abrir fluxo
+                  <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" aria-hidden />
+                </Badge>
+              </div>
+            </Link>
+          ))}
           <p className="sm:col-span-2 mt-1 rounded-lg bg-muted/60 p-3 text-xs leading-relaxed text-muted-foreground">
             {product ? PRODUCTS[product].spacingNote : "Selecione um produto para ver a política de espaçamento da imposição."}
           </p>
