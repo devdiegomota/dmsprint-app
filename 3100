@@ -36,3 +36,8 @@ Read more: https://nextjs.org/docs/app/api-reference/config/next-config-js/allow
  GET / 200 in 38ms (next.js: 1.1ms, application-code: 37ms)
 ✓ Compiled in 284ms
  GET /calendario 200 in 52ms (next.js: 1.4ms, application-code: 51ms)
+ GET / 200 in 20ms (next.js: 3ms, application-code: 17ms)
+ GET / 200 in 79ms (next.js: 1.1ms, application-code: 77ms)
+ GET / 200 in 16ms (next.js: 1.4ms, application-code: 15ms)
+ GET / 200 in 35ms (next.js: 1.2ms, application-code: 34ms)
+ GET /calendario 200 in 36ms (next.js: 1.1ms, application-code: 35ms)
