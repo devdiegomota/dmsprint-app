@@ -768,3 +768,35 @@ feriados que não coubessem devem pular para a linha de baixo em vez de virar "�
 **Validação:** build + E2E 22 checks verde (1 página A4, 740 KB) e self-check visual:
 bordas limpas, fevereiro com "09/02 Carnaval / 10/02 Quarta-feira de Cinzas" em 2
 linhas e Novembro quebrando "…20/11 | Consciência Negra" — nome completo legível.
+
+## Task 32 — Tenda A4: color picker da arte (paleta + conta-gotas + auto-extração)
+
+**Contexto:** auditoria da spec consolidada do "Calendário tenda A4 único" contra o
+código — 6 dos 7 itens já estavam no ar (Tasks 29–31: frente/verso arte+6 meses, pé
+sem marcas, sem página de instruções, feriados com quebra de linha, editor de
+posicionamento). O item sem cobertura era o color picker: existia só o input livre
+de cor + botão "Extrair da arte" (cor dominante única).
+
+**Implementação:**
+- `compose.ts`: `extractArtPalette(art, count=6)` — amostra numa cópia reduzida
+  (160 px, barato em artes de 300 DPI), agrupa por cubicelas de 32 tons com peso
+  pela saturação (cores vivas sobem na fila) e mescla vizinhos (dist. Manhattan ≤ 60)
+  até 6 cores distintas. `extractDominantColor` intocado (mesmo resultado do botão).
+- `page.tsx`: no upload de arte nova no slot principal (frente/capa), a paleta é
+  extraída e a cor dos textos é aplicada automaticamente — "arte nova, cor nova";
+  paleta renderizada como swatches redondos no card Estilo (clique aplica ao texto,
+  swatch ativo com anel); regra do documento no rodapé do bloco.
+- `art-placement-editor.tsx`: botão "Conta-gotas" (ícone Pipette) — modo de
+  amostragem com cursor cruzado; o clique lê o pixel DA FAIXA COMPOSTA (o recorte
+  real que imprime, via getImageData com conversão CSS px → px da faixa) e aplica
+  como cor dos textos; dica do editor troca no modo.
+
+**Infra:** .next corrompido na reciclagem do sandbox dava "firebase/firestore has no
+exports" no build — `rm -rf .next` resolveu (node_modules e lockfile estavam íntegros).
+`3100` (log do dev server) saiu do git e entrou no .gitignore.
+
+**E2E:** 28 verificações verdes (eram 22) — upload já aplica a cor extraída
+(#1e8dd8), paleta com 6 swatches, clique na paleta aplica (#4fa8e4), conta-gotas
+amostra o pixel exato da área lisa da capa (#1f78b4 vs RGB(31,120,180)), e todos os
+checks anteriores (pé, drag, zoom, ano, PDF 1 página A4, 13 cartões) continuam verde.
+Self-check visual do PDF: cor amostrada sai nos meses da frente — prévia = impresso.

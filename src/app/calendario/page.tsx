@@ -13,10 +13,11 @@
  *  - "13 cartões": capa + 12 meses, 1 tenda por folha (mês seguinte no verso).
  *
  * Nos dois: arte do cliente + grade gerada automaticamente (feriados nacionais
- * BR, domingos destacados), cor dos textos ajustável — com extração da cor
- * dominante da arte —, prévia ao vivo, PDF 300 DPI e envio à Nuvem DMS. No A4
- * único a arte de cada face tem editor de posicionamento (arrastar/zoom/
- * preencher/enquadrar) com a mesma matemática do PDF.
+ * BR, domingos destacados), cor dos textos ajustável — extraída da arte no
+ * upload, com paleta de cores da arte e conta-gotas no editor —, prévia ao
+ * vivo, PDF 300 DPI e envio à Nuvem DMS. No A4 único a arte de cada face tem
+ * editor de posicionamento (arrastar/zoom/preencher/enquadrar) com a mesma
+ * matemática do PDF.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -45,6 +46,7 @@ import {
   DEFAULT_STYLE,
   PANEL_COUNT,
   composeFace,
+  extractArtPalette,
   extractDominantColor,
   luminance,
   panelLabel,
@@ -122,6 +124,8 @@ export default function CalendarioPage() {
   const [version, setVersion] = useState(0);
 
   const [style, setStyle] = useState<CalendarStyle>(DEFAULT_STYLE);
+  /** Paleta extraída da arte principal (frente/capa) — swatches do seletor rápido. */
+  const [palette, setPalette] = useState<string[]>([]);
   const [preview, setPreview] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
@@ -182,6 +186,13 @@ export default function CalendarioPage() {
     setVersion((v) => v + 1);
   };
 
+  /** Arte nova no slot principal (frente/capa): paleta e cor dos textos acompanham —
+   * "arte nova, cor nova". O usuário ainda pode trocar pela paleta, conta-gotas ou input. */
+  const applyArtColors = (art: HTMLCanvasElement) => {
+    setPalette(extractArtPalette(art));
+    setStyle((s) => ({ ...s, textColor: extractDominantColor(art) }));
+  };
+
   const handleFiles = useCallback(
     async (files: FileList, replaceSlot: number | null) => {
       const list = Array.from(files).filter((f) => f.type.startsWith("image/"));
@@ -200,6 +211,7 @@ export default function CalendarioPage() {
           setPlacements((prev) =>
             prev.map((p, i) => (i === replaceSlot ? DEFAULT_PLACEMENT : p)),
           );
+          if (replaceSlot === 0) applyArtColors(art);
           setSelected(replaceSlot);
           setVersion((v) => v + 1);
           return;
@@ -211,6 +223,7 @@ export default function CalendarioPage() {
           if (slot >= slotCount) break;
           const art = await fileToCanvas(file);
           artsRef.current[slot] = art;
+          if (slot === 0) applyArtColors(art);
           const idx = slot;
           setThumbs((prev) => {
             const next = [...prev];
@@ -593,6 +606,7 @@ export default function CalendarioPage() {
                   onChange={(p) =>
                     setPlacements((prev) => prev.map((x, i) => (i === selected ? p : x)))
                   }
+                  onPickColor={(hex) => setStyle((s) => ({ ...s, textColor: hex }))}
                 />
               </CardContent>
             </Card>
@@ -750,9 +764,34 @@ export default function CalendarioPage() {
                     <Wand2 className="h-4 w-4" /> Extrair da arte
                   </Button>
                 </div>
+                {palette.length > 0 && (
+                  <div className="grid gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5" data-testid="art-palette">
+                      {palette.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          data-color={c}
+                          aria-label={`Aplicar a cor ${c} aos textos`}
+                          onClick={() => setStyle((s) => ({ ...s, textColor: c }))}
+                          className={`h-6 w-6 rounded-full border shadow-sm transition ${
+                            style.textColor.toLowerCase() === c.toLowerCase()
+                              ? "ring-2 ring-primary ring-offset-2"
+                              : "hover:scale-110"
+                          }`}
+                          style={{ backgroundColor: c }}
+                        />
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Cores extraídas da arte principal (frente/capa) — clique para aplicar. Arte
+                      nova, cores novas.
+                    </p>
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground">
-                  Casando com a foto/logo — a faixa da grade se adapta (clara ou escura) para o
-                  texto sempre ficar legível.
+                  Casando com a foto/logo — use a paleta ou o conta-gotas da arte; a faixa da grade
+                  se adapta (clara ou escura) para o texto sempre ficar legível.
                 </p>
               </div>
               <div className="grid gap-2">

@@ -1,15 +1,18 @@
 "use client";
 
 /**
- * Editor de posicionamento da arte na faixa da tenda (Task 30).
+ * Editor de posicionamento da arte na faixa da tenda (Task 30) + conta-gotas
+ * (Task 32).
  *
  * Arrastar posiciona, roda do mouse / slider dão zoom, "Preencher" cobre a
  * faixa recortando e "Enquadrar" mostra a arte inteira com fundo branco. Usa
  * EXATAMENTE a mesma matemática do PDF (computeArtRect / panPlacement), então
- * o enquadramento ajustado aqui sai idêntico no impresso.
+ * o enquadramento ajustado aqui sai idêntico no impresso. O conta-gotas amostra
+ * o pixel clicado DA PRÓPRIA faixa composta — a cor vista é a cor impressa.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Pipette } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   PLACEMENT_ZOOM_MAX,
@@ -27,6 +30,8 @@ interface ArtPlacementEditorProps {
   bandH: number;
   placement: ArtPlacement;
   onChange: (placement: ArtPlacement) => void;
+  /** Conta-gotas: cor do pixel clicado na arte (já composta, como sai no PDF). */
+  onPickColor?: (hex: string) => void;
 }
 
 export function ArtPlacementEditor({
@@ -35,9 +40,37 @@ export function ArtPlacementEditor({
   bandH,
   placement,
   onChange,
+  onPickColor,
 }: ArtPlacementEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<{ id: number; x: number; y: number } | null>(null);
+  const [picking, setPicking] = useState(false);
+
+  /** Cor do pixel da faixa sob o ponteiro (converte CSS px → px da faixa). */
+  const sampleAt = (e: React.PointerEvent<HTMLCanvasElement>): string | null => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return null;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = Math.round(((e.clientX - rect.left) / rect.width) * canvas.width);
+    const y = Math.round(((e.clientY - rect.top) / rect.height) * canvas.height);
+    const px = Math.max(0, Math.min(canvas.width - 1, x));
+    const py = Math.max(0, Math.min(canvas.height - 1, y));
+    const d = ctx.getImageData(px, py, 1, 1).data;
+    const toHex = (v: number) => v.toString(16).padStart(2, "0");
+    return `#${toHex(d[0])}${toHex(d[1])}${toHex(d[2])}`;
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (picking) {
+      const hex = sampleAt(e);
+      if (hex) onPickColor?.(hex);
+      setPicking(false);
+      return;
+    }
+    dragRef.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
 
   // Redesenha a faixa com o posicionamento atual — mesma matemática do PDF.
   useEffect(() => {
@@ -65,11 +98,6 @@ export function ArtPlacementEditor({
     ctx.drawImage(art, rect.dx, rect.dy, rect.dw, rect.dh);
     ctx.restore();
   }, [art, bandW, bandH, placement]);
-
-  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    dragRef.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
-    e.currentTarget.setPointerCapture(e.pointerId);
-  };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = dragRef.current;
@@ -110,7 +138,9 @@ export function ArtPlacementEditor({
       <canvas
         ref={canvasRef}
         data-testid="art-band-editor"
-        className="mx-auto block w-full max-w-[230px] cursor-grab touch-none rounded-md border shadow-sm active:cursor-grabbing"
+        className={`mx-auto block w-full max-w-[230px] touch-none rounded-md border shadow-sm ${
+          picking ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"
+        }`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerEnd}
@@ -142,6 +172,17 @@ export function ArtPlacementEditor({
         >
           Centralizar
         </Button>
+        {onPickColor && (
+          <Button
+            type="button"
+            size="sm"
+            variant={picking ? "default" : "outline"}
+            onClick={() => setPicking((p) => !p)}
+            data-testid="eyedropper"
+          >
+            <Pipette className="h-4 w-4" /> Conta-gotas
+          </Button>
+        )}
         <input
           data-testid="art-zoom"
           aria-label="Zoom da arte"
@@ -158,9 +199,15 @@ export function ArtPlacementEditor({
         </span>
       </div>
       <p className="text-xs text-muted-foreground">
-        Arraste a arte para posicionar · roda do mouse ou slider para zoom · o recorte daqui é o
-        mesmo que sai no PDF. &quot;Enquadrar&quot; mostra a arte inteira (fundo branco);
-        &quot;Preencher&quot; cobre a faixa recortando.
+        {picking ? (
+          <>Clique na arte para amostrar a cor daquele ponto — ela vira a cor dos textos.</>
+        ) : (
+          <>
+            Arraste a arte para posicionar · roda do mouse ou slider para zoom · o recorte daqui é
+            o mesmo que sai no PDF. &quot;Enquadrar&quot; mostra a arte inteira (fundo branco);
+            &quot;Preencher&quot; cobre a faixa recortando.
+          </>
+        )}
       </p>
     </div>
   );

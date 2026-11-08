@@ -118,6 +118,56 @@ export function extractDominantColor(art: HTMLCanvasElement): string {
   return `#${toHex(boost(base.r, avg))}${toHex(boost(base.g, avg))}${toHex(boost(base.b, avg))}`;
 }
 
+/**
+ * Paleta das cores mais marcantes da arte — alimenta os swatches do seletor
+ * rápido. Amostra numa cópia reduzida (barato em artes de 300 DPI), agrupa por
+ * cubicelas de 32 tons com peso pela saturação (cores vivas sobem na fila) e
+ * mescla vizinhos parecidos até sobrarem `count` cores bem distintas.
+ */
+export function extractArtPalette(art: HTMLCanvasElement, count = 6): string[] {
+  const sampleMax = 160;
+  const scale = Math.min(1, sampleMax / Math.max(art.width, art.height));
+  const sw = Math.max(1, Math.round(art.width * scale));
+  const sh = Math.max(1, Math.round(art.height * scale));
+  const small = makeCanvas(sw, sh);
+  const sctx = small.getContext("2d");
+  if (!sctx) return [];
+  sctx.drawImage(art, 0, 0, sw, sh);
+  const { data } = sctx.getImageData(0, 0, sw, sh);
+  const buckets = new Map<number, { r: number; g: number; b: number; w: number }>();
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 128) continue;
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const sat = Math.max(r, g, b) - Math.min(r, g, b);
+    const wgt = 1 + (sat * sat) / 4000;
+    const key = ((r >> 5) << 6) | ((g >> 5) << 3) | (b >> 5);
+    const cur = buckets.get(key);
+    if (cur) {
+      cur.r += r * wgt;
+      cur.g += g * wgt;
+      cur.b += b * wgt;
+      cur.w += wgt;
+    } else {
+      buckets.set(key, { r: r * wgt, g: g * wgt, b: b * wgt, w: wgt });
+    }
+  }
+  const cands = [...buckets.values()]
+    .map((c) => ({ r: c.r / c.w, g: c.g / c.w, b: c.b / c.w, w: c.w }))
+    .sort((a, b) => b.w - a.w);
+  const picked: { r: number; g: number; b: number }[] = [];
+  for (const c of cands) {
+    const distinto = picked.every(
+      (p) => Math.abs(p.r - c.r) + Math.abs(p.g - c.g) + Math.abs(p.b - c.b) > 60,
+    );
+    if (distinto) picked.push(c);
+    if (picked.length >= count) break;
+  }
+  const toHex = (v: number) => Math.round(v).toString(16).padStart(2, "0");
+  return picked.map((c) => `#${toHex(c.r)}${toHex(c.g)}${toHex(c.b)}`);
+}
+
 /** Desenha a arte cobrindo a face (cover, com recorte central) ou contida. */
 function drawArt(ctx: CanvasRenderingContext2D, art: HTMLCanvasElement, mode: CalendarStyle["fitMode"]): void {
   const W = FACE_W_PX;

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""E2E do Calendário Tenda (Tasks 28–31): sobe /calendario local e valida os
+"""E2E do Calendário Tenda (Tasks 28–32): sobe /calendario local e valida os
 dois formatos.
 
-Formato "Tenda A4 única" (padrão da página): 2 artes, extração de cor, seletor
-de ano, pé ajustável (aba de colagem), editor de posicionamento da arte
-(arrastar + zoom), prévia da folha (1 página, sem guia de montagem), PDF de
-1 página A4 e nuvem habilitada.
+Formato "Tenda A4 única" (padrão da página): 2 artes, auto-extração de cor no
+upload + paleta da arte + conta-gotas no editor, seletor de ano, pé ajustável
+(aba de colagem), editor de posicionamento da arte (arrastar + zoom), prévia da
+folha (1 página, sem guia de montagem), PDF de 1 página A4 e nuvem habilitada.
 Formato "13 cartões": troca de formato, 13 artes, prévia capa/março, PDF de
 13 páginas A4.
 
@@ -14,8 +14,10 @@ Saídas: /tmp/render/cal-e2e-*.png (prévias), /tmp/cal-a4.pdf e /tmp/cal-teste.
 
 import glob
 import os
+import re
 import sys
 
+from PIL import Image
 from pypdf import PdfReader
 from playwright.sync_api import sync_playwright
 
@@ -58,6 +60,38 @@ with sync_playwright() as p:
     page.wait_for_timeout(700)
     valor_cor = page.locator("#text-color").input_value()
     checar(valor_cor != "#292524", f"cor extraída da arte mudou o texto ({valor_cor})")
+
+    # Color picker (Task 32): auto-extração no upload + paleta + conta-gotas
+    cor_upload = page.locator("#text-color").input_value()
+    checar(cor_upload != "#292524", f"upload já aplica a cor extraída da arte ({cor_upload})")
+    paleta = page.locator("[data-testid='art-palette'] button")
+    checar(paleta.count() >= 3, f"paleta da arte com 3+ swatches ({paleta.count()})")
+    alvo = paleta.nth(1).get_attribute("data-color")
+    paleta.nth(1).click()
+    page.wait_for_timeout(400)
+    checar(page.locator("#text-color").input_value() == alvo,
+           f"clique na paleta aplica a cor ao texto ({alvo})")
+
+    # Conta-gotas: ponto (100, meio) da faixa cai na área lisa da capa (azul 31,119,180)
+    page.get_by_role("button", name="Conta-gotas").click()
+    page.wait_for_timeout(300)
+    checar("amostrar a cor" in page.locator("main").inner_text(),
+           "conta-gotas ativo mostra a dica de amostragem")
+    faixa_pick = page.locator("canvas[data-testid='art-band-editor']")
+    faixa_pick.scroll_into_view_if_needed()
+    caixa_pick = faixa_pick.bounding_box()
+    px_css = caixa_pick["x"] + caixa_pick["width"] * (100 / 760)
+    py_css = caixa_pick["y"] + caixa_pick["height"] / 2
+    page.mouse.click(px_css, py_css)
+    page.wait_for_timeout(500)
+    cor_pick = page.locator("#text-color").input_value()
+    checar(re.fullmatch(r"#[0-9a-f]{6}", cor_pick) is not None,
+           f"conta-gotas aplica um hex válido ({cor_pick})")
+    im = Image.open(ARTES[0]).convert("RGB")
+    esperado = im.getpixel((im.width // 4, im.height // 2))
+    got = tuple(int(cor_pick[i:i + 2], 16) for i in (1, 3, 5))
+    checar(all(abs(a - b) <= 12 for a, b in zip(got, esperado)),
+           f"conta-gotas pegou o pixel da área lisa ({cor_pick} vs RGB{esperado})")
 
     # Seletor de ano: 2028 atualiza o título automático da capa; volta para 2027
     page.locator("#cal-year").select_option("2028")
