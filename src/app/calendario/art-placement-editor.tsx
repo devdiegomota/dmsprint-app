@@ -200,7 +200,7 @@ export function ArtPlacementEditor({
       </div>
       <p className="text-xs text-muted-foreground">
         {picking ? (
-          <>Clique na arte para amostrar a cor daquele ponto — ela vira a cor dos textos.</>
+          <>Clique na arte para amostrar a cor daquele ponto — ela é aplicada ao campo de cor em destaque na seção Estilo.</>
         ) : (
           <>
             Arraste a arte para posicionar · roda do mouse ou slider para zoom · o recorte daqui é

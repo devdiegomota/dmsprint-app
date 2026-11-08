@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""E2E do Calendário Tenda (Tasks 28–33): sobe /calendario local e valida os
+"""E2E do Calendário Tenda (Tasks 28–35): sobe /calendario local e valida os
 dois formatos.
 
 Formato "Tenda A4 única" (padrão da página): 2 artes, auto-extração de cor no
-upload + paleta da arte + conta-gotas no editor, largura da faixa da arte
-ajustável em mm, seletor de ano, pé ajustável (aba de colagem), editor de
-posicionamento da arte (arrastar + zoom), prévia da folha (1 página, sem guia
-de montagem), PDF de 1 página A4 e nuvem habilitada.
+upload (pinta meses, números e gerais) + paleta da arte e conta-gotas mirando o
+último campo de cor tocado, cores separadas para meses/números verificadas em
+PIXELS do PDF gerado, largura da faixa da arte ajustável em mm, seletor de ano,
+pé ajustável (aba de colagem), editor de posicionamento da arte (arrastar +
+zoom), prévia da folha (1 página, sem guia de montagem), PDF de 1 página A4 e
+nuvem habilitada.
 Formato "13 cartões": troca de formato, 13 artes, prévia capa/março, PDF de
 13 páginas A4.
 
@@ -16,6 +18,7 @@ Saídas: /tmp/render/cal-e2e-*.png (prévias), /tmp/cal-a4.pdf e /tmp/cal-teste.
 import glob
 import os
 import re
+import subprocess
 import sys
 
 from PIL import Image
@@ -36,6 +39,27 @@ def checar(cond, msg):
         falhas.append(msg)
 
 
+def set_color_input(page, sel, hexv):
+    """Escreve um input[type=color] via o setter NATIVO e dispara input/change.
+    Atribuir el.value direto atualiza o value tracker do React e o onChange é
+    deduplicado (não dispara) — o setter do protótipo contorna isso."""
+    page.locator(sel).evaluate(
+        "(el, v) => {"
+        " const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;"
+        " set.call(el, v);"
+        " el.dispatchEvent(new Event('input', { bubbles: true }));"
+        " el.dispatchEvent(new Event('change', { bubbles: true })); }",
+        hexv,
+    )
+
+
+def conta_cor(png, box, alvo_hex, tol):
+    """Quantos pixels de box (x0, y0, x1, y1) ficam a até `tol` por canal do hex."""
+    alvo = tuple(int(alvo_hex[i:i + 2], 16) for i in (1, 3, 5))
+    im = Image.open(png).convert("RGB").crop(box)
+    return sum(1 for p in im.getdata() if all(abs(a - b) <= tol for a, b in zip(p, alvo)))
+
+
 with sync_playwright() as p:
     browser = p.chromium.launch()
     ctx = browser.new_context(accept_downloads=True, viewport={"width": 1440, "height": 1000})
@@ -54,7 +78,9 @@ with sync_playwright() as p:
     checar("Calendário Tenda A4" not in html_home, "variante A4 também sai da grade de imposição (ambas viram fluxo)")
     tile = page.locator("a[href='/calendario']").first
     tile.click()
-    page.wait_for_url(f"{BASE}/calendario", wait_until="networkidle")
+    # networkidle aqui é corrida (listeners do Firebase mantêm tráfego) — o tile
+    # é <a> real: domcontentloaded basta, igual ao goto da home.
+    page.wait_for_url(f"{BASE}/calendario", wait_until="domcontentloaded")
     checar("Calendário de Mesa Tenda 2027" in page.content().replace("<!-- -->", ""), "tile da home leva à página /calendario")
 
     page.goto(f"{BASE}/calendario", wait_until="networkidle")
@@ -79,6 +105,13 @@ with sync_playwright() as p:
     # Color picker (Task 32): auto-extração no upload + paleta + conta-gotas
     cor_upload = page.locator("#text-color").input_value()
     checar(cor_upload != "#292524", f"upload já aplica a cor extraída da arte ({cor_upload})")
+    txt_estilo = page.locator("main").inner_text()
+    checar("Cor dos meses" in txt_estilo and "Cor dos números" in txt_estilo,
+           "Estilo tem campos separados para meses e números (Task 35)")
+    checar(page.locator("#month-color").input_value() == cor_upload,
+           "upload aplica a cor extraída também aos meses")
+    checar(page.locator("#day-color").input_value() == cor_upload,
+           "upload aplica a cor extraída também aos números")
     paleta = page.locator("[data-testid='art-palette'] button")
     checar(paleta.count() >= 3, f"paleta da arte com 3+ swatches ({paleta.count()})")
     alvo = paleta.nth(1).get_attribute("data-color")
@@ -87,7 +120,23 @@ with sync_playwright() as p:
     checar(page.locator("#text-color").input_value() == alvo,
            f"clique na paleta aplica a cor ao texto ({alvo})")
 
+    # Paleta mira o ÚLTIMO campo de cor tocado (Task 35): foca o campo dos meses
+    alvo2 = None
+    for i in range(paleta.count()):
+        c = paleta.nth(i).get_attribute("data-color")
+        if c and c != cor_upload and i != 1:
+            alvo2 = (i, c)
+            break
+    page.locator("#month-color").focus()
+    paleta.nth(alvo2[0]).click()
+    page.wait_for_timeout(400)
+    checar(page.locator("#month-color").input_value() == alvo2[1],
+           f"paleta aplica ao campo em destaque: cor dos meses ({alvo2[1]})")
+    checar(page.locator("#text-color").input_value() == alvo,
+           "cor dos textos gerais intacta quando o alvo da paleta é outro campo")
+
     # Conta-gotas: ponto (100, meio) da faixa cai na área lisa da capa (azul 31,119,180)
+    page.locator("#text-color").focus()  # conta-gotas volta a mirar os textos gerais
     page.get_by_role("button", name="Conta-gotas").click()
     page.wait_for_timeout(300)
     checar("amostrar a cor" in page.locator("main").inner_text(),
@@ -176,6 +225,12 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Centralizar").click()
     page.wait_for_timeout(800)
 
+    # Cores separadas (Task 35): meses vermelho e números azul — validadas em
+    # PIXELS do PDF gerado mais abaixo (prévia = impresso).
+    set_color_input(page, "#month-color", "#ff0000")
+    set_color_input(page, "#day-color", "#0000ff")
+    page.wait_for_timeout(700)
+
     previa.screenshot(path="/tmp/render/cal-e2e-a4-folha.png")
 
     # Sem página de instruções: o toggle do guia foi removido (PDF de 1 página)
@@ -194,6 +249,26 @@ with sync_playwright() as p:
            f"página A4 em pontos ({float(box.width):.1f} × {float(box.height):.1f})")
     checar(page.get_by_role("button", name="Enviar para a nuvem").is_enabled(),
            "envio à nuvem habilitado após gerar o PDF (A4)")
+
+    # Pixels no PDF (Task 35): nome "Janeiro" em vermelho (#ff0000) e os números
+    # da grade em azul (#0000ff). O "sem cor antiga" é por RAZÃO, não zero: o
+    # undershoot do JPEG nas bordas dos glifos produz alguns pixels escuros
+    # casuais (3 aqui) — num build quebrado a cor antiga dominaria a região.
+    subprocess.run(["pdftoppm", "-r", "150", "-jpeg", "-jpegopt", "quality=95",
+                    PDF_A4, "/tmp/render/cal-cor"], check=True)
+    pag = "/tmp/render/cal-cor-1.jpg"
+    nome_box = (412, 726, 523, 751)   # "Janeiro" do 1º mini-mês da frente
+    dias_box = (413, 776, 786, 836)   # grade de números do mesmo mini-mês
+    nome_verm = conta_cor(pag, nome_box, "#ff0000", 70)
+    nome_pad = conta_cor(pag, nome_box, "#292524", 60)
+    dias_azul = conta_cor(pag, dias_box, "#0000ff", 70)
+    dias_pad = conta_cor(pag, dias_box, "#292524", 60)
+    checar(nome_verm > 15, f"PDF: nome do mês na cor dos meses (vermelho, {nome_verm} px)")
+    checar(nome_pad * 20 < nome_verm,
+           f"PDF: nome do mês sem traço da cor antiga (padrão {nome_pad} × vermelho {nome_verm})")
+    checar(dias_azul > 15, f"PDF: números dos dias na cor dos números (azul, {dias_azul} px)")
+    checar(dias_pad * 20 < dias_azul,
+           f"PDF: números sem traço da cor antiga (padrão {dias_pad} × azul {dias_azul})")
 
     # ============ Formato 2: 13 cartões (capa + 12 meses) ============
     page.get_by_role("button", name="13 cartões").click()

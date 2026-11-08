@@ -856,3 +856,35 @@ ganham página própria.
   entre colchetes não protege se OUTRO trecho do próprio comando contém o literal —
   o heredoc do worklog citava o comando do servidor e o shell se auto-matou; rodar
   pkill isolado em sua própria chamada.
+
+## Task 35 — Cores separadas: nome dos meses e números dos dias
+
+**Pedido do usuário:** hoje há uma cor única para os textos do calendário; ele quer
+colorir o NOME dos meses e os NÚMEROS dos dias separadamente.
+
+**Modelo (`compose.ts`):** `CalendarStyle` ganha `monthColor` (nome de cada mês e
+ano do título "MES 2027") e `dayColor` (números da grade; domingos/feriados
+continuam no `accentColor`). `textColor` vira "textos gerais": dias da semana,
+título da capa e ano. O scrim da grade nos 13 cartões agora decide claro/escuro
+pela cor dos números (o texto em massa ali); o scrim do título sobre a arte segue
+a cor geral. Defaults = mesma tinta `#292524` nos três: nenhum visual muda sem o
+usuário mudar.
+
+**UI (`page.tsx`):** três campos de cor lado a lado no card Estilo (hint sob cada
+um, campo ativo com anel) + registro `COLOR_FIELDS`. A paleta da arte e o
+conta-gotas aplicam ao ÚLTIMO campo tocado (`colorTarget`); a extração da arte
+(upload e botão "Extrair") pinta os três de uma vez — "arte nova, cor nova" como
+antes, e o usuário afina um a um depois.
+
+**E2E (46 checks, eram 35):** campos separados existem; upload pinta os 3; paleta
+mira o campo focado (meses) sem alterar os gerais; e PIXELS no PDF gerado — nome
+"Janeiro" em #ff0000 (555 px) e números em #0000ff (140 px), "sem cor antiga"
+verificado por RAZÃO (padrão×20 < alvo) porque o undershoot do JPEG nas bordas
+dos glifos produz uns 3 pixels escuros casuais.
+
+**Descobertas operacionais:**
+- `el.value = v` direto NÃO dispara onChange no React (value tracker deduplica);
+  usar o setter nativo `HTMLInputElement.prototype.value` + eventos. Custou uma
+  rodada de E2E com falsos negativos.
+- `wait_for_url(..., networkidle)` no clique do tile era corrida (Firebase mantém
+  tráfego) — trocado por domcontentloaded, igual ao goto da home.

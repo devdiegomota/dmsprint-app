@@ -29,8 +29,12 @@ export const PANEL_COUNT = 13;
 export const PANEL_LABELS = ["Capa", ...MONTH_NAMES] as const;
 
 export interface CalendarStyle {
-  /** Cor dos textos (mês, ano, números, dias da semana) — hex. */
+  /** Cor dos textos gerais (dias da semana, título/ano da capa) — hex. */
   textColor: string;
+  /** Cor dos NOMES dos meses (título "MES 2027" e mini-meses) — hex. */
+  monthColor: string;
+  /** Cor dos NÚMEROS dos dias (domingos/feriados ficam com accentColor) — hex. */
+  dayColor: string;
   /** Cor de domingos e feriados — hex. */
   accentColor: string;
   /** Preencher (cobre a face, recorta) ou conter (arte inteira, fundo branco). */
@@ -43,6 +47,8 @@ export interface CalendarStyle {
 
 export const DEFAULT_STYLE: CalendarStyle = {
   textColor: "#292524",
+  monthColor: "#292524",
+  dayColor: "#292524",
   accentColor: "#dc2626",
   fitMode: "cover",
   coverTitle: "Calendário 2027",
@@ -226,7 +232,8 @@ function drawMonthTitle(ctx: CanvasRenderingContext2D, month: number, style: Cal
   const x = 120;
   const y = 215;
   setShadow(ctx, true);
-  ctx.fillStyle = style.textColor;
+  // Título inteiro (nome + ano) na cor dos meses — é o "cartão de título" do mês.
+  ctx.fillStyle = style.monthColor;
   ctx.fillText(name, x, y);
   ctx.font = `700 ${yearSize}px ${FONT_STACK}`;
   ctx.globalAlpha = 0.85;
@@ -246,7 +253,8 @@ function composeMonthFace(
   drawMonthTitle(ctx, month, style);
 
   const bandY = Math.round(H * 0.5);
-  drawScrim(ctx, bandY, style.textColor);
+  // O scrim protege a GRADE — acompanha a cor dos números (o texto em massa ali).
+  drawScrim(ctx, bandY, style.dayColor);
 
   const marginX = 110;
   const cellW = (W - marginX * 2) / 7;
@@ -278,7 +286,7 @@ function composeMonthFace(
       const cx = marginX + cellW * (c + 0.5);
       const cy = gridTop + rowH * r + rowH / 2;
       const highlight = cell.sunday || cell.holiday !== null;
-      ctx.fillStyle = highlight ? style.accentColor : style.textColor;
+      ctx.fillStyle = highlight ? style.accentColor : style.dayColor;
       ctx.fillText(String(cell.day), cx, cy);
     }
   }

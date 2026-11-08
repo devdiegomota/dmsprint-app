@@ -14,9 +14,9 @@
  *  - "13 cartões": capa + 12 meses, 1 tenda por folha (mês seguinte no verso).
  *
  * Nos dois: arte do cliente + grade gerada automaticamente (feriados nacionais
- * BR, domingos destacados), cor dos textos ajustável — extraída da arte no
- * upload, com paleta de cores da arte e conta-gotas no editor —, prévia ao
- * vivo, PDF 300 DPI e envio à Nuvem DMS. No A4 único a arte de cada face tem
+ * BR, domingos destacados), cores de texto separadas — nome dos meses, números
+ * dos dias e textos gerais, extraídas da arte no upload, com paleta da arte e
+ * conta-gotas no editor —, prévia ao vivo, PDF 300 DPI e envio à Nuvem DMS. No A4 único a arte de cada face tem
  * editor de posicionamento (arrastar/zoom/preencher/enquadrar) com a mesma
  * matemática do PDF.
  */
@@ -83,6 +83,43 @@ const fmtMm = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1).rep
 /** Formatos do calendário: folha única completa ou 13 cartões (1 por mês). */
 type CalFormat = "a4" | "cartoes";
 
+/** Campos de cor de texto, na ordem da UI. A paleta da arte e o conta-gotas
+ *  aplicam ao último campo tocado (colorTarget); a extração da arte pinta os
+ *  três de uma vez ("arte nova, cor nova"). */
+const COLOR_FIELDS = [
+  {
+    key: "text",
+    styleKey: "textColor",
+    id: "text-color",
+    label: "Cor dos textos gerais",
+    hint: "Dias da semana, título da capa e ano.",
+  },
+  {
+    key: "month",
+    styleKey: "monthColor",
+    id: "month-color",
+    label: "Cor dos meses",
+    hint: "Nome de cada mês no calendário.",
+  },
+  {
+    key: "day",
+    styleKey: "dayColor",
+    id: "day-color",
+    label: "Cor dos números",
+    hint: "Dias do mês — domingos e feriados ficam na cor de destaque.",
+  },
+] as const;
+
+type ColorTarget = (typeof COLOR_FIELDS)[number]["key"];
+
+/** Parcial do estilo com os TRÊS campos de cor de texto = `hex` — usado quando
+ *  uma cor única deve dominar tudo (extração da arte no upload/botão). */
+const artColorsAll = (hex: string): Pick<CalendarStyle, "textColor" | "monthColor" | "dayColor"> => ({
+  textColor: hex,
+  monthColor: hex,
+  dayColor: hex,
+});
+
 /** Decodifica o arquivo enviado em um canvas no tamanho natural. */
 async function fileToCanvas(file: File): Promise<HTMLCanvasElement> {
   const url = URL.createObjectURL(file);
@@ -128,6 +165,12 @@ export default function CalendarioPage() {
   const [version, setVersion] = useState(0);
 
   const [style, setStyle] = useState<CalendarStyle>(DEFAULT_STYLE);
+  /** Campo de cor ativo: paleta da arte e conta-gotas aplicam a ele. */
+  const [colorTarget, setColorTarget] = useState<ColorTarget>("text");
+  const colorStyleKey = COLOR_FIELDS.find((f) => f.key === colorTarget)!.styleKey;
+  const colorTargetLabel = COLOR_FIELDS.find((f) => f.key === colorTarget)!.label;
+  const setTextColor = (key: (typeof COLOR_FIELDS)[number]["styleKey"], hex: string) =>
+    setStyle((s) => ({ ...s, [key]: hex }) as CalendarStyle);
   /** Paleta extraída da arte principal (frente/capa) — swatches do seletor rápido. */
   const [palette, setPalette] = useState<string[]>([]);
   const [preview, setPreview] = useState<string | null>(null);
@@ -194,11 +237,11 @@ export default function CalendarioPage() {
     setVersion((v) => v + 1);
   };
 
-  /** Arte nova no slot principal (frente/capa): paleta e cor dos textos acompanham —
-   * "arte nova, cor nova". O usuário ainda pode trocar pela paleta, conta-gotas ou input. */
+  /** Arte nova no slot principal (frente/capa): paleta e cores acompanham —
+   *  "arte nova, cor nova" nos TRÊS campos (o usuário depois afina um a um). */
   const applyArtColors = (art: HTMLCanvasElement) => {
     setPalette(extractArtPalette(art));
-    setStyle((s) => ({ ...s, textColor: extractDominantColor(art) }));
+    setStyle((s) => ({ ...s, ...artColorsAll(extractDominantColor(art)) }));
   };
 
   const handleFiles = useCallback(
@@ -320,10 +363,10 @@ export default function CalendarioPage() {
       return;
     }
     const color = extractDominantColor(art);
-    setStyle((s) => ({ ...s, textColor: color }));
+    setStyle((s) => ({ ...s, ...artColorsAll(color) }));
     toast({
       title: "Cor extraída da arte",
-      description: `${color.toUpperCase()} aplicado aos textos. Ajuste no seletor se quiser variar.`,
+      description: `${color.toUpperCase()} aplicado a meses, números e textos gerais — afine cada campo se quiser variar.`,
     });
   };
 
@@ -615,7 +658,7 @@ export default function CalendarioPage() {
                   onChange={(p) =>
                     setPlacements((prev) => prev.map((x, i) => (i === selected ? p : x)))
                   }
-                  onPickColor={(hex) => setStyle((s) => ({ ...s, textColor: hex }))}
+                  onPickColor={(hex) => setTextColor(colorStyleKey, hex)}
                 />
               </CardContent>
             </Card>
@@ -796,17 +839,38 @@ export default function CalendarioPage() {
                   </p>
                 </div>
               )}
-              <div className="grid gap-2">
-                <Label htmlFor="text-color">Cor dos textos</Label>
-                <div className="flex items-center gap-2">
-                  <input
-                    id="text-color"
-                    type="color"
-                    value={style.textColor}
-                    onChange={(e) => setStyle((s) => ({ ...s, textColor: e.target.value }))}
-                    className="h-9 w-14 cursor-pointer rounded-md border bg-background p-1"
-                  />
-                  <Button type="button" variant="outline" size="sm" onClick={handleExtractColor}>
+              <div className="grid gap-3 sm:col-span-2" data-testid="text-colors">
+                <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
+                  {COLOR_FIELDS.map((f) => (
+                    <div
+                      key={f.key}
+                      data-color-target={f.key}
+                      className={`grid gap-1.5 rounded-lg p-2 -m-2 transition ${
+                        colorTarget === f.key ? "bg-primary/5 ring-2 ring-primary/50" : ""
+                      }`}
+                    >
+                      <Label htmlFor={f.id}>{f.label}</Label>
+                      <input
+                        id={f.id}
+                        type="color"
+                        value={style[f.styleKey]}
+                        onFocus={() => setColorTarget(f.key)}
+                        onChange={(e) => {
+                          setColorTarget(f.key);
+                          setTextColor(f.styleKey, e.target.value);
+                        }}
+                        className="h-9 w-14 cursor-pointer rounded-md border bg-background p-1"
+                      />
+                      <p className="max-w-44 text-xs text-muted-foreground">{f.hint}</p>
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleExtractColor}
+                    className="self-center"
+                  >
                     <Wand2 className="h-4 w-4" /> Extrair da arte
                   </Button>
                 </div>
@@ -818,10 +882,10 @@ export default function CalendarioPage() {
                           key={c}
                           type="button"
                           data-color={c}
-                          aria-label={`Aplicar a cor ${c} aos textos`}
-                          onClick={() => setStyle((s) => ({ ...s, textColor: c }))}
+                          aria-label={`Aplicar a cor ${c} a "${colorTargetLabel}"`}
+                          onClick={() => setTextColor(colorStyleKey, c)}
                           className={`h-6 w-6 rounded-full border shadow-sm transition ${
-                            style.textColor.toLowerCase() === c.toLowerCase()
+                            style[colorStyleKey].toLowerCase() === c.toLowerCase()
                               ? "ring-2 ring-primary ring-offset-2"
                               : "hover:scale-110"
                           }`}
@@ -830,14 +894,15 @@ export default function CalendarioPage() {
                       ))}
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Cores extraídas da arte principal (frente/capa) — clique para aplicar. Arte
-                      nova, cores novas.
+                      Cores extraídas da arte principal (frente/capa) — aplicam ao campo em
+                      destaque. Arte nova, cores novas.
                     </p>
                   </div>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  Casando com a foto/logo — use a paleta ou o conta-gotas da arte; a faixa da grade
-                  se adapta (clara ou escura) para o texto sempre ficar legível.
+                  A paleta e o conta-gotas aplicam ao último campo de cor tocado (em destaque). A
+                  faixa atrás da grade se adapta (clara ou escura) pela cor dos números para o
+                  texto sempre ficar legível.
                 </p>
               </div>
               <div className="grid gap-2">

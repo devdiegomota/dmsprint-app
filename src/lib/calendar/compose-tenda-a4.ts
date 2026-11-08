@@ -324,12 +324,12 @@ function drawMiniMonth(
       ? Math.round(4 * s) + legendLines.length * Math.round(38 * s)
       : Math.round(10 * s);
 
-  // Nome do mês
+  // Nome do mês — na cor dos meses (independente dos números e dos gerais)
   const name = MONTH_NAMES[month - 1];
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
   fitFont(ctx, name, 900, Math.round(72 * s), Math.round(40 * s), w);
-  ctx.fillStyle = style.textColor;
+  ctx.fillStyle = style.monthColor;
   ctx.fillText(name, x + 4, y + Math.round(62 * s));
 
   // Cabeçalho dos dias da semana
@@ -356,7 +356,7 @@ function drawMiniMonth(
       if (!cell) continue;
       const cx = x + colW * (c + 0.5);
       const cy = gridTop + rowH * r + rowH / 2;
-      ctx.fillStyle = cell.sunday || cell.holiday !== null ? style.accentColor : style.textColor;
+      ctx.fillStyle = cell.sunday || cell.holiday !== null ? style.accentColor : style.dayColor;
       ctx.fillText(String(cell.day), cx, cy);
     }
   }
