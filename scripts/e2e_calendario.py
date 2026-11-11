@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""E2E do Calendário Tenda (Tasks 28–35): sobe /calendario local e valida os
+"""E2E do Calendário Tenda (Tasks 28–36): sobe /calendario local e valida os
 dois formatos.
 
 Formato "Tenda A4 única" (padrão da página): 2 artes, auto-extração de cor no
@@ -7,8 +7,8 @@ upload (pinta meses, números e gerais) + paleta da arte e conta-gotas mirando o
 último campo de cor tocado, cores separadas para meses/números verificadas em
 PIXELS do PDF gerado, largura da faixa da arte ajustável em mm, seletor de ano,
 pé ajustável (aba de colagem), editor de posicionamento da arte (arrastar +
-zoom), prévia da folha (1 página, sem guia de montagem), PDF de 1 página A4 e
-nuvem habilitada.
+zoom + ancoragem vertical topo/base no Enquadrar), prévia da folha (1 página,
+sem guia de montagem), PDF de 1 página A4 e nuvem habilitada.
 Formato "13 cartões": troca de formato, 13 artes, prévia capa/março, PDF de
 13 páginas A4.
 
@@ -224,6 +224,46 @@ with sync_playwright() as p:
     checar("120%" in page.locator("main").inner_text(), "zoom da arte em 120% pelo slider")
     page.get_by_role("button", name="Centralizar").click()
     page.wait_for_timeout(800)
+
+    # Encaixe vertical no Enquadrar (Task 36): a arte quadrada de teste deixa
+    # ~620 px de folga na faixa 762×1382 — arraste vertical muda a âncora e os
+    # botões Topo/Base colam a arte nas bordas. Amostragem direta do canvas do
+    # editor: a MESMA matemática do PDF (computeArtRect).
+    page.get_by_role("button", name="Enquadrar").click()
+    page.wait_for_timeout(700)
+    checar(page.locator("[data-testid='pin-top']").is_visible()
+           and page.locator("[data-testid='pin-base']").is_visible(),
+           "Enquadrar mostra os botões Topo e Base")
+
+    def faixa_nao_branco(fa, fb):
+        return editor.evaluate(
+            "(el, [a, b]) => { const ctx = el.getContext('2d');"
+            " const y0 = Math.round(el.height * a), hh = Math.round(el.height * (b - a));"
+            " const d = ctx.getImageData(0, y0, el.width, hh).data;"
+            " let n = 0; for (let i = 0; i < d.length; i += 4) {"
+            "  if (d[i] < 245 || d[i + 1] < 245 || d[i + 2] < 245) n++; } return n; }",
+            [fa, fb],
+        )
+
+    src_contain = previa.get_attribute("src")
+    caixa_v = editor.bounding_box()
+    vx = caixa_v["x"] + caixa_v["width"] / 2
+    vy = caixa_v["y"] + caixa_v["height"] / 2
+    page.mouse.move(vx, vy)
+    page.mouse.down()
+    page.mouse.move(vx, vy + 60, steps=6)
+    page.mouse.up()
+    page.wait_for_timeout(900)
+    checar(previa.get_attribute("src") != src_contain,
+           "arraste VERTICAL no Enquadrar reposiciona a arte (antes ficava travada no centro)")
+    page.locator("[data-testid='pin-base']").click()
+    page.wait_for_timeout(700)
+    checar(faixa_nao_branco(0.0, 0.15) == 0 and faixa_nao_branco(0.85, 1.0) > 100,
+           f"botão Base cola a arte na base (topo branco: {faixa_nao_branco(0.0, 0.15)} px não-brancos)")
+    page.locator("[data-testid='pin-top']").click()
+    page.wait_for_timeout(700)
+    checar(faixa_nao_branco(0.0, 0.15) > 100 and faixa_nao_branco(0.85, 1.0) == 0,
+           f"botão Topo cola a arte no topo (base branca: {faixa_nao_branco(0.85, 1.0)} px não-brancos)")
 
     # Cores separadas (Task 35): meses vermelho e números azul — validadas em
     # PIXELS do PDF gerado mais abaixo (prévia = impresso).

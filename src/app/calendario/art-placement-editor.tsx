@@ -2,13 +2,15 @@
 
 /**
  * Editor de posicionamento da arte na faixa da tenda (Task 30) + conta-gotas
- * (Task 32).
+ * (Task 32) + ancoragem vertical no Enquadrar (Task 36).
  *
- * Arrastar posiciona, roda do mouse / slider dão zoom, "Preencher" cobre a
- * faixa recortando e "Enquadrar" mostra a arte inteira com fundo branco. Usa
- * EXATAMENTE a mesma matemática do PDF (computeArtRect / panPlacement), então
- * o enquadramento ajustado aqui sai idêntico no impresso. O conta-gotas amostra
- * o pixel clicado DA PRÓPRIA faixa composta — a cor vista é a cor impressa.
+ * Arrastar posiciona (no Enquadrar, para cima/baixo cola a arte no topo ou na
+ * base da faixa — botões Topo/Base fazem isso num clique), roda do mouse /
+ * slider dão zoom, "Preencher" cobre a faixa recortando e "Enquadrar" mostra a
+ * arte inteira com fundo branco. Usa EXATAMENTE a mesma matemática do PDF
+ * (computeArtRect / panPlacement), então o enquadramento ajustado aqui sai
+ * idêntico no impresso. O conta-gotas amostra o pixel clicado DA PRÓPRIA faixa
+ * composta — a cor vista é a cor impressa.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -172,6 +174,30 @@ export function ArtPlacementEditor({
         >
           Centralizar
         </Button>
+        {placement.fitMode === "contain" && (
+          <>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              data-testid="pin-top"
+              aria-label="Colar a arte no topo da faixa"
+              onClick={() => onChange({ ...placement, fy: 0 })}
+            >
+              Topo
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              data-testid="pin-base"
+              aria-label="Colar a arte na base da faixa"
+              onClick={() => onChange({ ...placement, fy: 1 })}
+            >
+              Base
+            </Button>
+          </>
+        )}
         {onPickColor && (
           <Button
             type="button"
@@ -203,9 +229,10 @@ export function ArtPlacementEditor({
           <>Clique na arte para amostrar a cor daquele ponto — ela é aplicada ao campo de cor em destaque na seção Estilo.</>
         ) : (
           <>
-            Arraste a arte para posicionar · roda do mouse ou slider para zoom · o recorte daqui é
-            o mesmo que sai no PDF. &quot;Enquadrar&quot; mostra a arte inteira (fundo branco);
-            &quot;Preencher&quot; cobre a faixa recortando.
+            Arraste a arte para posicionar — no Enquadrar, para cima/baixo cola no topo ou na
+            base (ou use os botões Topo/Base) · roda do mouse ou slider para zoom · o recorte
+            daqui é o mesmo que sai no PDF. &quot;Enquadrar&quot; mostra a arte inteira (fundo
+            branco); &quot;Preencher&quot; cobre a faixa recortando.
           </>
         )}
       </p>

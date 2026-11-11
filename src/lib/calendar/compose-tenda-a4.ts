@@ -17,7 +17,8 @@
  * 2·faceMm da borda).
  *
  * A arte de cada face aceita posicionamento manual (ArtPlacement: arraste +
- * zoom + preencher/enquadrar) e a LARGURA DA FAIXA é ajustável em mm
+ * zoom + preencher/enquadrar, com âncora vertical — no Enquadrar a arte cola
+ * no topo ou na base da faixa, Task 36) e a LARGURA DA FAIXA é ajustável em mm
  * (artWidthMm — Task 33). computeArtRect/panPlacement e artWidthPx alimentam o
  * editor da prévia e o PDF com a MESMA matemática — o que se vê é o que sai.
  */
@@ -65,7 +66,9 @@ const FONT_STACK = 'Arial, "Helvetica Neue", Helvetica, sans-serif';
 // Posicionamento da arte (editor ↔ PDF)
 // ---------------------------------------------------------------------------
 
-/** Como a arte entra na faixa da face. fx/fy = ponto da imagem (0–1) que fica no centro da faixa. */
+/** Como a arte entra na faixa da face. fx/fy = ponto da imagem (0–1): onde há
+ * transbordo, esse ponto fica no centro da faixa; na folga vertical do
+ * Enquadrar, fy ancora a arte (0 = colada no topo, 0,5 = centrada, 1 = base). */
 export interface ArtPlacement {
   fitMode: "cover" | "contain";
   /** Zoom relativo ao ajuste base (1 = preencher/enquadrar exato). */
@@ -103,7 +106,14 @@ export function computeArtRect(
   let dx = band.width / 2 - clamp(p.fx, 0, 1) * dw;
   let dy = band.height / 2 - clamp(p.fy, 0, 1) * dh;
   dx = dw >= band.width ? clamp(dx, band.width - dw, 0) : (band.width - dw) / 2;
-  dy = dh >= band.height ? clamp(dy, band.height - dh, 0) : (band.height - dh) / 2;
+  if (dh >= band.height) {
+    dy = clamp(dy, band.height - dh, 0);
+  } else {
+    // Folga vertical (Enquadrar com arte mais baixa que a faixa): fy ancora a
+    // arte no slot — 0 cola no topo, 0,5 centra (comportamento de sempre),
+    // 1 cola na base (Task 36).
+    dy = clamp(p.fy, 0, 1) * (band.height - dh);
+  }
   return { dw, dh, dx, dy };
 }
 
@@ -117,10 +127,14 @@ export function panPlacement(
 ): ArtPlacement {
   const { dw, dh, dx, dy } = computeArtRect(img, band, p);
   const next = { ...p };
-  // Só faz sentido arrastar onde há transbordo (nos eixos em que a imagem
-  // cabe inteira, ela fica centralizada).
+  // Arraste onde há transbordo; na folga vertical do Enquadrar, o arraste
+  // vertical muda a âncora fy — nas extremidades a arte cola no topo/base.
   if (dw > band.width + 0.5) next.fx = clamp((band.width / 2 - (dx + ddx)) / dw, 0, 1);
-  if (dh > band.height + 0.5) next.fy = clamp((band.height / 2 - (dy + ddy)) / dh, 0, 1);
+  if (dh > band.height + 0.5) {
+    next.fy = clamp((band.height / 2 - (dy + ddy)) / dh, 0, 1);
+  } else if (p.fitMode === "contain" && dh < band.height - 0.5) {
+    next.fy = clamp((dy + ddy) / (band.height - dh), 0, 1);
+  }
   return next;
 }
 

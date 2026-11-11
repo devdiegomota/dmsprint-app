@@ -888,3 +888,28 @@ dos glifos produz uns 3 pixels escuros casuais.
   rodada de E2E com falsos negativos.
 - `wait_for_url(..., networkidle)` no clique do tile era corrida (Firebase mantém
   tráfego) — trocado por domcontentloaded, igual ao goto da home.
+
+## Task 36 — Ancoragem vertical da arte no Enquadrar (colar no topo/base)
+
+**Pedido do usuário:** poder arrastar a arte para cima/baixo quando ENQUADRA,
+para colar no topo ou embaixo do slot (arte paisagem/quadrada no slot alto
+ficava sempre centrada, com branco dos dois lados).
+
+**Modelo (`compose-tenda-a4.ts`):** no Enquadrar com folga vertical
+(dh < faixa), `computeArtRect` agora ancora pelo fy: `dy = fy·(altura − dh)` —
+0 cola no topo, 0,5 centra (comportamento de sempre, padrão intacto), 1 cola na
+base. `panPlacement` aceita arraste VERTICAL na folga: `fy = (dy+ddy)/folga`
+clampado 0–1 — arrastar até a borda cola a arte. Transbordo (Preencher/zoom)
+segue a matemática de antes; cabeçalho do fy atualizado.
+
+**UI (editor):** botões **Topo** e **Base** (pin-top/pin-base) aparecem só no
+Enquadrar — colam num clique sem tocar no zoom; dica do editor explica o
+arraste vertical. Mesma matemática do PDF (`computeArtRect`), então o encaixe
+visto é o impresso.
+
+**E2E (50 checks, eram 46):** botões visíveis no Enquadrar; arraste vertical
+muda a prévia (antes travada no centro); Base cola (topo 0 px não-branco) e
+Topo cola (base 0 px), amostrando faixas de 15% do canvas do editor.
+`scripts/make_cal_artes.py` recriado e PERSISTIDO (as artes de teste viviam só
+no /tmp e sumiram com o sandbox; quadradas 900×900 de propósito → ~620 px de
+folga vertical na faixa 762×1382).
