@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""E2E do Calendário Tenda (Tasks 28–37): sobe /calendario local e valida os
+"""E2E do Calendário Tenda (Tasks 28–38): sobe /calendario local e valida os
 dois formatos.
 
 Formato "Tenda A4 única" (padrão da página): 2 artes, auto-extração de cor no
 upload (pinta meses, números e gerais) + paleta da arte e conta-gotas mirando o
 último campo de cor tocado, cores separadas para meses/números verificadas em
 PIXELS do PDF gerado, largura da faixa da arte e altura da sombra (0 = sem
-sombra) ajustáveis, seletor de ano, pé ajustável (aba de colagem), editor de
+sombra) ajustáveis, rodapé da arte (título e ano) ocultável para artes que já
+trazem esses textos, seletor de ano, pé ajustável (aba de colagem), editor de
 posicionamento da arte (arrastar + zoom + ancoragem vertical topo/base no
 Enquadrar), prévia da folha (1 página, sem guia de montagem), PDF de 1 página
 A4 e nuvem habilitada.
@@ -286,8 +287,8 @@ with sync_playwright() as p:
             [fx, fy],
         )
 
-    checar("Altura da sombra" in page.locator("main").inner_text(),
-           "card 'Altura da sombra' presente no formato A4")
+    checar("Rodapé da arte" in page.locator("main").inner_text(),
+           "card 'Rodapé da arte' (sombra + título/ano) presente no formato A4")
     brilho_sombra = previa_brilho(0.035, 0.782)
     page.locator("#scrim-range").focus()
     page.keyboard.press("Home")
@@ -297,6 +298,31 @@ with sync_playwright() as p:
            f"sombra padrão (27 mm) altera a base da arte na prévia (com {brilho_sombra:.0f} → sem {brilho_limpo:.0f})")
     checar(brilho_limpo > 85,
            f"sombra em 0 mm: arte 100% visível na base da prévia (brilho {brilho_limpo:.0f})")
+
+    # Rodapé ocultável (Task 38): cliente manda arte com título/ano já
+    # impressos — desliga os textos; sem AMBOS, o scrim é IGNORADO mesmo com
+    # sombra > 0. O texto geral vai para vermelho para os glifos serem
+    # detectáveis sobre a arte azul no PDF rasterizado (o #1f78b4 do
+    # conta-gotas é quase igual à arte e não se destacaria).
+    set_color_input(page, "#text-color", "#ff0000")
+    page.wait_for_timeout(700)
+    src_ano_on = previa.get_attribute("src")
+    page.locator("[data-testid='show-year-switch']").click()
+    page.wait_for_timeout(900)
+    checar(previa.get_attribute("src") != src_ano_on,
+           "desligar o ano recomponhe a prévia (ano ocultado)")
+    src_tit_on = previa.get_attribute("src")
+    page.locator("[data-testid='show-title-switch']").click()
+    page.wait_for_timeout(900)
+    checar(previa.get_attribute("src") != src_tit_on,
+           "desligar o título recomponhe a prévia (título ocultado)")
+    page.locator("#scrim-range").focus()
+    for _ in range(27):
+        page.keyboard.press("ArrowRight")
+    page.wait_for_timeout(900)
+    brilho_rodape = previa_brilho(0.035, 0.782)
+    checar(brilho_rodape > 85,
+           f"scrim 27 mm é ignorado sem título e ano (brilho {brilho_rodape:.0f})")
 
     # Cores separadas (Task 35): meses vermelho e números azul — validadas em
     # PIXELS do PDF gerado mais abaixo (prévia = impresso).
@@ -343,14 +369,27 @@ with sync_playwright() as p:
     checar(dias_pad * 20 < dias_azul,
            f"PDF: números sem traço da cor antiga (padrão {dias_pad} × azul {dias_azul})")
 
-    # Sombra em 0 mm no PDF (Task 37): a base da faixa da frente (y ≈ 2764/3508
-    # @300 DPI → 1382 @150 DPI) tem de ser arte pura, sem o véu do scrim.
+    # Base da faixa sem véu (Tasks 37/38): y ≈ 2764/3508 @300 DPI → 1382 @150.
+    # Aqui a sombra está em 27 mm mas o rodapé está oculto — arte pura prova o
+    # auto-skip do scrim também no PDF.
     with Image.open(pag) as imp:
         reg = imp.crop((44, 1356, 60, 1372)).convert("RGB")
         vals = list(reg.getdata())
         brilho = sum(sum(v) for v in vals) / (len(vals) * 3)
     checar(brilho > 85,
-           f"PDF: sombra 0 mm — base da faixa com arte pura (brilho médio {brilho:.0f})")
+           f"PDF: base da faixa com arte pura, sem véu do scrim (brilho médio {brilho:.0f})")
+
+    # Rodapé oculto no PDF (Task 38): as caixas do título e do ano, sobre a
+    # faixa da frente, não podem ter NENHUM glifo vermelho — o texto não é
+    # desenhado e a arte do cliente sai limpa.
+    ano_box = (75, 1299, 306, 1362)    # "2027" grande da frente @150 DPI
+    tit_box = (48, 1258, 330, 1302)    # "Calendário 2027" da frente @150 DPI
+    ano_verm = conta_cor(pag, ano_box, "#ff0000", 70)
+    tit_verm = conta_cor(pag, tit_box, "#ff0000", 70)
+    checar(ano_verm == 0,
+           f"PDF: ano oculto — nenhum glifo do ano sobre a arte ({ano_verm} px vermelhos)")
+    checar(tit_verm == 0,
+           f"PDF: título oculto — nenhum glifo do título sobre a arte ({tit_verm} px vermelhos)")
 
     # ============ Formato 2: 13 cartões (capa + 12 meses) ============
     page.get_by_role("button", name="13 cartões").click()

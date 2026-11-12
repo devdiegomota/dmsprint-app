@@ -942,3 +942,28 @@ escuro: comparação COM vs. SEM cobre os dois polaritys); sombra em 0 mm deixa
 a arte 100% visível na prévia (brilho 110 = azul da arte); PDF rasterizado em
 150 DPI com arte pura na base da faixa (brilho médio 110, sem véu). Artes de
 teste recriadas pelo gerador persistido (o /tmp foi reciclado entre turnos).
+
+## Task 38 — Rodapé da arte ocultável (título e ano sobre a faixa)
+
+**Pedido do usuário:** poder ocultar o "2027" do rodapé da arte — alguns
+clientes mandam arte já com esse texto impresso nela, e o texto do app por
+cima duplica/estraga a arte.
+
+**Modelo (`compose-tenda-a4.ts`):** `TendaA4Options.showTitle/showYear`
+(padrão true); `composeTendaA4Leg` desenha título e ano condicionalmente.
+AUTO-SKIP do scrim: sem título E sem ano, a sombra não é aplicada mesmo com
+scrimMm > 0 — ela existe só para dar contraste aos textos, e a arte do cliente
+sai 100% limpa (frente e verso). Posições dos textos inalteradas quando
+presentes (título H−235s, ano H−60s).
+
+**UI (page.tsx):** card renomeado para "Rodapé da arte" com dois switches
+independentes ("Mostrar título" / "Mostrar ano", show-title-switch /
+show-year-switch) + o slider de sombra; nota explica que sem os textos a
+sombra não é aplicada. Estado na prévia e no export.
+
+**E2E (59 checks, eram 54):** desligar o ano e o título recomponhem a prévia;
+scrim 27 mm é IGNORADO sem os textos (brilho 110 = arte pura); no PDF
+rasterizado as caixas do ano e do título não têm NENHUM glifo vermelho
+(texto geral forçado para #ff0000 para ser detectável sobre a arte azul — o
+#1f78b4 do conta-gotas é quase igual à arte e não se destacaria); base da
+faixa com arte pura prova o auto-skip também no impresso.

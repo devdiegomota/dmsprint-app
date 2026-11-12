@@ -187,6 +187,9 @@ export default function CalendarioPage() {
   const [artWidthMm, setArtWidthMm] = useState(ART_W_DEFAULT_MM);
   /** Altura da sombra na base da faixa em mm — 0 desliga (arte fica inteira). */
   const [scrimMm, setScrimMm] = useState(SCRIM_DEFAULT_MM);
+  /** Título/ano sobre a arte ocultáveis — arte do cliente pode já trazê-los. */
+  const [showTitle, setShowTitle] = useState(true);
+  const [showYear, setShowYear] = useState(true);
   /** Posicionamento da arte por slot (editor arrastar/zoom). */
   const [placements, setPlacements] = useState<ArtPlacement[]>([
     DEFAULT_PLACEMENT,
@@ -327,6 +330,8 @@ export default function CalendarioPage() {
               footMm,
               artWidthMm,
               scrimMm,
+              showTitle,
+              showYear,
               year,
               placementFront: placements[0],
               placementBack: placements[1],
@@ -353,7 +358,7 @@ export default function CalendarioPage() {
       alive = false;
       clearTimeout(timer);
     };
-  }, [selected, style, version, isA4, footMm, artWidthMm, scrimMm, year, placements]);
+  }, [selected, style, version, isA4, footMm, artWidthMm, scrimMm, showTitle, showYear, year, placements]);
 
   const handleExtractColor = () => {
     // No A4 único a referência é a arte da frente; nos 13 cartões, a do painel aberto.
@@ -407,7 +412,7 @@ export default function CalendarioPage() {
           artsRef.current[0],
           artsRef.current[1],
           style,
-          { footMm, artWidthMm, scrimMm, year, placementFront: placements[0], placementBack: placements[1] },
+          { footMm, artWidthMm, scrimMm, showTitle, showYear, year, placementFront: placements[0], placementBack: placements[1] },
         );
         setExportProgress(60);
         await tick();
@@ -744,13 +749,37 @@ export default function CalendarioPage() {
           {isA4 && (
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Altura da sombra</CardTitle>
+                <CardTitle className="text-base">Rodapé da arte</CardTitle>
                 <CardDescription>
-                  A sombra na base da área da arte, atrás do título e do ano — dá contraste ao
-                  texto sobre qualquer arte.
+                  O título e o ano impressos sobre a arte na base da faixa, e a sombra que dá
+                  contraste a eles — desligue quando a arte já traz esses textos.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="grid gap-2">
+              <CardContent className="grid gap-3">
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="show-title"
+                      data-testid="show-title-switch"
+                      checked={showTitle}
+                      onCheckedChange={setShowTitle}
+                    />
+                    <Label htmlFor="show-title" className="text-sm font-normal">
+                      Mostrar título
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="show-year"
+                      data-testid="show-year-switch"
+                      checked={showYear}
+                      onCheckedChange={setShowYear}
+                    />
+                    <Label htmlFor="show-year" className="text-sm font-normal">
+                      Mostrar ano
+                    </Label>
+                  </div>
+                </div>
                 <input
                   id="scrim-range"
                   type="range"
@@ -770,9 +799,9 @@ export default function CalendarioPage() {
                   <span>{SCRIM_MAX_MM} mm</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Padrão de {SCRIM_DEFAULT_MM} mm. Em 0 mm a sombra some e a arte aparece inteira
-                  na base — bom quando há dados importantes para ler embaixo; se o título ou o
-                  ano ficarem difíceis de ler sem ela, ajuste a cor dos textos gerais na seção
+                  Sombra padrão de {SCRIM_DEFAULT_MM} mm; em 0 mm ela some. Sem título e ano, a
+                  sombra não é aplicada — a arte aparece inteira, do jeito que o cliente mandou.
+                  Se os textos ficarem difíceis de ler, ajuste a cor dos textos gerais na seção
                   Estilo. Vale para frente e verso.
                 </p>
               </CardContent>

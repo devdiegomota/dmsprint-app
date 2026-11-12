@@ -19,10 +19,11 @@
  * A arte de cada face aceita posicionamento manual (ArtPlacement: arraste +
  * zoom + preencher/enquadrar, com âncora vertical — no Enquadrar a arte cola
  * no topo ou na base da faixa, Task 36), a LARGURA DA FAIXA é ajustável em mm
- * (artWidthMm — Task 33) e a ALTURA DA SOMBRA na base da faixa também
- * (scrimMm, 0 desliga — Task 37). computeArtRect/panPlacement, artWidthPx e
- * scrimHeightPx alimentam o editor da prévia e o PDF com a MESMA matemática —
- * o que se vê é o que sai.
+ * (artWidthMm — Task 33), a ALTURA DA SOMBRA na base da faixa também
+ * (scrimMm, 0 desliga — Task 37) e o RODAPÉ (título e ano) é ocultável para
+ * artes que já trazem esses textos (showTitle/showYear — Task 38).
+ * computeArtRect/panPlacement, artWidthPx e scrimHeightPx alimentam o editor
+ * da prévia e o PDF com a MESMA matemática — o que se vê é o que sai.
  */
 
 import { makeCanvas } from "@/lib/print/analysis";
@@ -227,6 +228,8 @@ export function composeTendaA4Leg(
   legH: number,
   artW: number,
   scrimPx: number,
+  showTitle: boolean,
+  showYear: boolean,
 ): HTMLCanvasElement {
   const W = FACE_W_PX;
   const H = legH;
@@ -270,13 +273,15 @@ export function composeTendaA4Leg(
   }
 
   // ---- Título + ano sobre a arte (scrim na base da faixa) ----
-  // Altura ajustável (Task 37): a rampa de gradiente e o bloco sólido são
-  // proporcionais à sombra — em 0 mm nada é desenhado. Teto de 85% da face
+  // Textos ocultáveis (Task 38): a sombra existe só para dar contraste a
+  // eles — sem título E sem ano, o scrim não é aplicado e a arte aparece
+  // inteira, como o cliente mandou. Altura ajustável (Task 37): rampa de
+  // gradiente e bloco sólido proporcionais à sombra; teto de 85% da face
   // evita uma sombra degenerada cobrindo a faixa inteira.
   const scrimH = Math.min(scrimPx, Math.round(H * 0.85));
   const darkText = luminance(style.textColor) < 0.55;
   const solid = darkText ? "rgba(255, 255, 255, 0.88)" : "rgba(12, 10, 9, 0.72)";
-  if (scrimH > 0) {
+  if (scrimH > 0 && (showTitle || showYear)) {
     const grad = ctx.createLinearGradient(
       0,
       H - scrimH - Math.round(scrimH * 0.2),
@@ -293,13 +298,20 @@ export function composeTendaA4Leg(
 
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
-  setShadow(ctx, !darkText);
-  ctx.fillStyle = style.textColor;
-  fitFont(ctx, style.coverTitle, 700, Math.round(84 * s), Math.round(34 * s), artW - Math.round(90 * s));
-  ctx.fillText(style.coverTitle, artW / 2, H - Math.round(235 * s));
-  ctx.font = `900 ${Math.round(210 * s)}px ${FONT_STACK}`;
-  ctx.fillText(String(year), artW / 2, H - Math.round(60 * s));
-  setShadow(ctx, false);
+  if (showTitle) {
+    setShadow(ctx, !darkText);
+    ctx.fillStyle = style.textColor;
+    fitFont(ctx, style.coverTitle, 700, Math.round(84 * s), Math.round(34 * s), artW - Math.round(90 * s));
+    ctx.fillText(style.coverTitle, artW / 2, H - Math.round(235 * s));
+    setShadow(ctx, false);
+  }
+  if (showYear) {
+    setShadow(ctx, !darkText);
+    ctx.fillStyle = style.textColor;
+    ctx.font = `900 ${Math.round(210 * s)}px ${FONT_STACK}`;
+    ctx.fillText(String(year), artW / 2, H - Math.round(60 * s));
+    setShadow(ctx, false);
+  }
 
   // ---- 6 mini-meses em grade 2 × 3 ----
   const monthsX0 = artW + 60;
@@ -456,6 +468,10 @@ export interface TendaA4Options {
   artWidthMm: number;
   /** Altura da sombra na base da faixa em mm — 0 a 40 (padrão 27; 0 = sem sombra). */
   scrimMm: number;
+  /** Título e ano sobre a arte — ocultáveis (Task 38): cliente pode mandar a
+   * arte com esses textos já impressos. Sem ambos, o scrim não é aplicado. */
+  showTitle: boolean;
+  showYear: boolean;
   /** Ano do calendário (grade e feriados). */
   year: number;
   /** Posicionamento da arte na faixa da frente e do verso. */
@@ -494,6 +510,8 @@ export function composeTendaA4Sheet(
     leg,
     artW,
     scrimPx,
+    opts.showTitle,
+    opts.showYear,
   );
   const backLeg = composeTendaA4Leg(
     7,
@@ -505,6 +523,8 @@ export function composeTendaA4Sheet(
     leg,
     artW,
     scrimPx,
+    opts.showTitle,
+    opts.showYear,
   );
   const sheet = makeCanvas(SHEET_W_PX, SHEET_H_PX);
   const ctx = sheet.getContext("2d");
