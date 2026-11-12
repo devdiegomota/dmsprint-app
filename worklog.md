@@ -913,3 +913,32 @@ Topo cola (base 0 px), amostrando faixas de 15% do canvas do editor.
 `scripts/make_cal_artes.py` recriado e PERSISTIDO (as artes de teste viviam só
 no /tmp e sumiram com o sandbox; quadradas 900×900 de propósito → ~620 px de
 folga vertical na faixa 762×1382).
+
+## Task 37 — Altura da sombra (scrim) ajustável na base da faixa
+
+**Pedido do usuário:** poder regular a altura da sombra na base da área da arte
+(atrás de "Calendário 2027" e do ano) — quando a arte tem dados importantes
+embaixo, deixá-los 100% visíveis sem o véu por cima.
+
+**Modelo (`compose-tenda-a4.ts`):** sombra em mm impressos — `SCRIM_MIN_MM 0 /
+SCRIM_MAX_MM 40 / SCRIM_DEFAULT_MM 27` + `scrimHeightPx()` espelhando o padrão
+do `artWidthPx` (Task 33). `TendaA4Options.scrimMm`; `composeTendaA4Leg` recebe
+`scrimPx`. Rampa de gradiente e bloco sólido agora PROPORCIONAIS à sombra
+(0.2/0.35/0.15·scrimH) — em 27 mm ≈ o visual de sempre (400·s px com o pé
+padrão); em 0 mm nada é desenhado; teto de 85% da face evita sombra
+degenerada. O véu continua branco (0.88) para textColor claro e escuro (0.72)
+para textColor escuro, como antes.
+
+**UI (page.tsx):** card "Altura da sombra" (slider 0–40 mm, passo 1, padrão
+27) ao lado do card de largura da faixa; texto explica o trade-off — sem
+sombra o título/ano perdem contraste, compensar pela cor dos textos gerais no
+Estilo. Prévia e export passam `scrimMm`; deps do useEffect da prévia
+atualizadas. Mesma matemática na prévia e no PDF (o visto é o impresso).
+
+**E2E (54 checks, eram 50):** card presente no A4; sombra padrão altera o
+brilho do pixel da base (com 237 → sem 110 — véu BRANCO neste teste, porque o
+conta-gotas deixou o textColor azul-claro; a 1ª rodada falhou por assumir véu
+escuro: comparação COM vs. SEM cobre os dois polaritys); sombra em 0 mm deixa
+a arte 100% visível na prévia (brilho 110 = azul da arte); PDF rasterizado em
+150 DPI com arte pura na base da faixa (brilho médio 110, sem véu). Artes de
+teste recriadas pelo gerador persistido (o /tmp foi reciclado entre turnos).

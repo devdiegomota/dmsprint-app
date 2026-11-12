@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""E2E do Calendário Tenda (Tasks 28–36): sobe /calendario local e valida os
+"""E2E do Calendário Tenda (Tasks 28–37): sobe /calendario local e valida os
 dois formatos.
 
 Formato "Tenda A4 única" (padrão da página): 2 artes, auto-extração de cor no
 upload (pinta meses, números e gerais) + paleta da arte e conta-gotas mirando o
 último campo de cor tocado, cores separadas para meses/números verificadas em
-PIXELS do PDF gerado, largura da faixa da arte ajustável em mm, seletor de ano,
-pé ajustável (aba de colagem), editor de posicionamento da arte (arrastar +
-zoom + ancoragem vertical topo/base no Enquadrar), prévia da folha (1 página,
-sem guia de montagem), PDF de 1 página A4 e nuvem habilitada.
+PIXELS do PDF gerado, largura da faixa da arte e altura da sombra (0 = sem
+sombra) ajustáveis, seletor de ano, pé ajustável (aba de colagem), editor de
+posicionamento da arte (arrastar + zoom + ancoragem vertical topo/base no
+Enquadrar), prévia da folha (1 página, sem guia de montagem), PDF de 1 página
+A4 e nuvem habilitada.
 Formato "13 cartões": troca de formato, 13 artes, prévia capa/março, PDF de
 13 páginas A4.
 
@@ -265,6 +266,38 @@ with sync_playwright() as p:
     checar(faixa_nao_branco(0.0, 0.15) > 100 and faixa_nao_branco(0.85, 1.0) == 0,
            f"botão Topo cola a arte no topo (base branca: {faixa_nao_branco(0.85, 1.0)} px não-brancos)")
 
+    # Sombra ajustável na base da faixa (Task 37): o padrão cobre a base da
+    # arte atrás do título/ano; em 0 mm some. Medição por PIXEL na prévia
+    # (canto inferior esquerdo da frente, fora do texto "2027") e no PDF
+    # rasterizado mais abaixo. A comparação é COM vs. SEM sombra — o véu pode
+    # ser escuro (textColor escuro) ou branco (textColor claro, p.ex. o azul
+    # do conta-gotas neste teste). Volta para Preencher para o ponto amostrado
+    # ser sempre arte (em cover a faixa fica 100% coberta).
+    page.get_by_role("button", name="Preencher").click()
+    page.wait_for_timeout(900)
+
+    def previa_brilho(fx, fy):
+        return previa.evaluate(
+            "(el, [fx, fy]) => { const c = document.createElement('canvas');"
+            " c.width = el.naturalWidth; c.height = el.naturalHeight;"
+            " const ctx = c.getContext('2d'); ctx.drawImage(el, 0, 0);"
+            " const d = ctx.getImageData(Math.round(c.width * fx), Math.round(c.height * fy), 1, 1).data;"
+            " return (d[0] + d[1] + d[2]) / 3; }",
+            [fx, fy],
+        )
+
+    checar("Altura da sombra" in page.locator("main").inner_text(),
+           "card 'Altura da sombra' presente no formato A4")
+    brilho_sombra = previa_brilho(0.035, 0.782)
+    page.locator("#scrim-range").focus()
+    page.keyboard.press("Home")
+    page.wait_for_timeout(900)
+    brilho_limpo = previa_brilho(0.035, 0.782)
+    checar(abs(brilho_sombra - brilho_limpo) > 60,
+           f"sombra padrão (27 mm) altera a base da arte na prévia (com {brilho_sombra:.0f} → sem {brilho_limpo:.0f})")
+    checar(brilho_limpo > 85,
+           f"sombra em 0 mm: arte 100% visível na base da prévia (brilho {brilho_limpo:.0f})")
+
     # Cores separadas (Task 35): meses vermelho e números azul — validadas em
     # PIXELS do PDF gerado mais abaixo (prévia = impresso).
     set_color_input(page, "#month-color", "#ff0000")
@@ -309,6 +342,15 @@ with sync_playwright() as p:
     checar(dias_azul > 15, f"PDF: números dos dias na cor dos números (azul, {dias_azul} px)")
     checar(dias_pad * 20 < dias_azul,
            f"PDF: números sem traço da cor antiga (padrão {dias_pad} × azul {dias_azul})")
+
+    # Sombra em 0 mm no PDF (Task 37): a base da faixa da frente (y ≈ 2764/3508
+    # @300 DPI → 1382 @150 DPI) tem de ser arte pura, sem o véu do scrim.
+    with Image.open(pag) as imp:
+        reg = imp.crop((44, 1356, 60, 1372)).convert("RGB")
+        vals = list(reg.getdata())
+        brilho = sum(sum(v) for v in vals) / (len(vals) * 3)
+    checar(brilho > 85,
+           f"PDF: sombra 0 mm — base da faixa com arte pura (brilho médio {brilho:.0f})")
 
     # ============ Formato 2: 13 cartões (capa + 12 meses) ============
     page.get_by_role("button", name="13 cartões").click()

@@ -63,6 +63,9 @@ import {
   FOOT_DEFAULT_MM,
   FOOT_MAX_MM,
   FOOT_MIN_MM,
+  SCRIM_DEFAULT_MM,
+  SCRIM_MAX_MM,
+  SCRIM_MIN_MM,
   a4Filename,
   artWidthPx,
   composeTendaA4Sheet,
@@ -182,6 +185,8 @@ export default function CalendarioPage() {
   const [footMm, setFootMm] = useState(FOOT_DEFAULT_MM);
   /** Largura da faixa de arte em mm — os mini-meses ocupam o que sobra na face. */
   const [artWidthMm, setArtWidthMm] = useState(ART_W_DEFAULT_MM);
+  /** Altura da sombra na base da faixa em mm — 0 desliga (arte fica inteira). */
+  const [scrimMm, setScrimMm] = useState(SCRIM_DEFAULT_MM);
   /** Posicionamento da arte por slot (editor arrastar/zoom). */
   const [placements, setPlacements] = useState<ArtPlacement[]>([
     DEFAULT_PLACEMENT,
@@ -321,6 +326,7 @@ export default function CalendarioPage() {
             {
               footMm,
               artWidthMm,
+              scrimMm,
               year,
               placementFront: placements[0],
               placementBack: placements[1],
@@ -347,7 +353,7 @@ export default function CalendarioPage() {
       alive = false;
       clearTimeout(timer);
     };
-  }, [selected, style, version, isA4, footMm, artWidthMm, year, placements]);
+  }, [selected, style, version, isA4, footMm, artWidthMm, scrimMm, year, placements]);
 
   const handleExtractColor = () => {
     // No A4 único a referência é a arte da frente; nos 13 cartões, a do painel aberto.
@@ -401,7 +407,7 @@ export default function CalendarioPage() {
           artsRef.current[0],
           artsRef.current[1],
           style,
-          { footMm, artWidthMm, year, placementFront: placements[0], placementBack: placements[1] },
+          { footMm, artWidthMm, scrimMm, year, placementFront: placements[0], placementBack: placements[1] },
         );
         setExportProgress(60);
         await tick();
@@ -730,6 +736,44 @@ export default function CalendarioPage() {
                   Padrão de {fmtMm(ART_W_DEFAULT_MM)} mm. Mais larga = mais arte e menos espaço
                   para os meses; mais estreita = o contrário. Vale para frente e verso, e o
                   recorte da arte se adapta ao novo formato da faixa.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {isA4 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Altura da sombra</CardTitle>
+                <CardDescription>
+                  A sombra na base da área da arte, atrás do título e do ano — dá contraste ao
+                  texto sobre qualquer arte.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-2">
+                <input
+                  id="scrim-range"
+                  type="range"
+                  min={SCRIM_MIN_MM}
+                  max={SCRIM_MAX_MM}
+                  step={1}
+                  value={scrimMm}
+                  onChange={(e) => setScrimMm(Number(e.target.value))}
+                  className="w-full accent-primary"
+                  aria-label="Altura da sombra em milímetros"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>0 mm (sem sombra)</span>
+                  <span className="text-sm font-semibold text-foreground">
+                    {fmtMm(scrimMm)} mm
+                  </span>
+                  <span>{SCRIM_MAX_MM} mm</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Padrão de {SCRIM_DEFAULT_MM} mm. Em 0 mm a sombra some e a arte aparece inteira
+                  na base — bom quando há dados importantes para ler embaixo; se o título ou o
+                  ano ficarem difíceis de ler sem ela, ajuste a cor dos textos gerais na seção
+                  Estilo. Vale para frente e verso.
                 </p>
               </CardContent>
             </Card>

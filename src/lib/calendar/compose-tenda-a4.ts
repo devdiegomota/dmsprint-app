@@ -18,9 +18,11 @@
  *
  * A arte de cada face aceita posicionamento manual (ArtPlacement: arraste +
  * zoom + preencher/enquadrar, com âncora vertical — no Enquadrar a arte cola
- * no topo ou na base da faixa, Task 36) e a LARGURA DA FAIXA é ajustável em mm
- * (artWidthMm — Task 33). computeArtRect/panPlacement e artWidthPx alimentam o
- * editor da prévia e o PDF com a MESMA matemática — o que se vê é o que sai.
+ * no topo ou na base da faixa, Task 36), a LARGURA DA FAIXA é ajustável em mm
+ * (artWidthMm — Task 33) e a ALTURA DA SOMBRA na base da faixa também
+ * (scrimMm, 0 desliga — Task 37). computeArtRect/panPlacement, artWidthPx e
+ * scrimHeightPx alimentam o editor da prévia e o PDF com a MESMA matemática —
+ * o que se vê é o que sai.
  */
 
 import { makeCanvas } from "@/lib/print/analysis";
@@ -47,6 +49,20 @@ export const ART_W_DEFAULT_MM = 64.5;
  * a MESMA conversão alimenta editor e PDF: o visto é o impresso. */
 export function artWidthPx(artWidthMm: number): number {
   const mm = Math.min(ART_W_MAX_MM, Math.max(ART_W_MIN_MM, artWidthMm));
+  return Math.round(mmToPx(mm));
+}
+
+/** Altura da sombra (scrim) na base da faixa de arte — AJUSTÁVEL pelo slider
+ * da página, em mm impressos (Task 37). 0 desliga a sombra: arte com dados
+ * importantes na base fica 100% legível, sem o véu por cima — o título/ano
+ * perdem o contraste de apoio (o usuário compensa pela cor dos textos).
+ * Padrão de 27 mm mantém o visual de sempre (400·s px com o pé padrão). */
+export const SCRIM_MIN_MM = 0;
+export const SCRIM_MAX_MM = 40;
+export const SCRIM_DEFAULT_MM = 27;
+
+export function scrimHeightPx(scrimMm: number): number {
+  const mm = Math.min(SCRIM_MAX_MM, Math.max(SCRIM_MIN_MM, scrimMm));
   return Math.round(mmToPx(mm));
 }
 
@@ -210,6 +226,7 @@ export function composeTendaA4Leg(
   placement: ArtPlacement,
   legH: number,
   artW: number,
+  scrimPx: number,
 ): HTMLCanvasElement {
   const W = FACE_W_PX;
   const H = legH;
@@ -253,16 +270,26 @@ export function composeTendaA4Leg(
   }
 
   // ---- Título + ano sobre a arte (scrim na base da faixa) ----
-  const scrimH = Math.round(400 * s);
+  // Altura ajustável (Task 37): a rampa de gradiente e o bloco sólido são
+  // proporcionais à sombra — em 0 mm nada é desenhado. Teto de 85% da face
+  // evita uma sombra degenerada cobrindo a faixa inteira.
+  const scrimH = Math.min(scrimPx, Math.round(H * 0.85));
   const darkText = luminance(style.textColor) < 0.55;
   const solid = darkText ? "rgba(255, 255, 255, 0.88)" : "rgba(12, 10, 9, 0.72)";
-  const grad = ctx.createLinearGradient(0, H - scrimH - Math.round(80 * s), 0, H - scrimH + Math.round(60 * s));
-  grad.addColorStop(0, darkText ? "rgba(255, 255, 255, 0)" : "rgba(12, 10, 9, 0)");
-  grad.addColorStop(1, solid);
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, H - scrimH - Math.round(80 * s), artW, Math.round(140 * s));
-  ctx.fillStyle = solid;
-  ctx.fillRect(0, H - scrimH + Math.round(60 * s), artW, scrimH - Math.round(60 * s));
+  if (scrimH > 0) {
+    const grad = ctx.createLinearGradient(
+      0,
+      H - scrimH - Math.round(scrimH * 0.2),
+      0,
+      H - scrimH + Math.round(scrimH * 0.15),
+    );
+    grad.addColorStop(0, darkText ? "rgba(255, 255, 255, 0)" : "rgba(12, 10, 9, 0)");
+    grad.addColorStop(1, solid);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, H - scrimH - Math.round(scrimH * 0.2), artW, Math.round(scrimH * 0.35));
+    ctx.fillStyle = solid;
+    ctx.fillRect(0, H - scrimH + Math.round(scrimH * 0.15), artW, scrimH - Math.round(scrimH * 0.15));
+  }
 
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
@@ -427,6 +454,8 @@ export interface TendaA4Options {
   footMm: number;
   /** Largura da faixa de arte em mm — 45 a 100 (padrão 64,5). */
   artWidthMm: number;
+  /** Altura da sombra na base da faixa em mm — 0 a 40 (padrão 27; 0 = sem sombra). */
+  scrimMm: number;
   /** Ano do calendário (grade e feriados). */
   year: number;
   /** Posicionamento da arte na faixa da frente e do verso. */
@@ -453,6 +482,7 @@ export function composeTendaA4Sheet(
   const footMm = Math.round(clamp(opts.footMm, FOOT_MIN_MM, FOOT_MAX_MM));
   const { leg, foot } = legHeightPx(footMm);
   const artW = artWidthPx(opts.artWidthMm);
+  const scrimPx = scrimHeightPx(opts.scrimMm);
   const back = artBack ?? artFront;
   const frontLeg = composeTendaA4Leg(
     1,
@@ -463,6 +493,7 @@ export function composeTendaA4Sheet(
     opts.placementFront,
     leg,
     artW,
+    scrimPx,
   );
   const backLeg = composeTendaA4Leg(
     7,
@@ -473,6 +504,7 @@ export function composeTendaA4Sheet(
     opts.placementBack,
     leg,
     artW,
+    scrimPx,
   );
   const sheet = makeCanvas(SHEET_W_PX, SHEET_H_PX);
   const ctx = sheet.getContext("2d");
